@@ -35,6 +35,8 @@ class ServerConfig:
     path: str
     log_level: str | None
     timeout: float
+    include_tags: tuple[str, ...]
+    exclude_tags: tuple[str, ...]
 
 
 class DataverseApiKeyAuth(httpx.Auth):
@@ -121,6 +123,24 @@ def parse_args() -> argparse.Namespace:
         default=float(os.getenv("API_TIMEOUT", "30")),
         help="Upstream API request timeout in seconds.",
     )
+    parser.add_argument(
+        "--include-tag",
+        action="append",
+        default=[],
+        help=(
+            "Only expose OpenAPI operations with this tag. Can be repeated. "
+            "Alternatively set INCLUDE_TAGS as a comma-separated list."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-tag",
+        action="append",
+        default=[],
+        help=(
+            "Hide OpenAPI operations with this tag. Can be repeated. "
+            "Alternatively set EXCLUDE_TAGS as a comma-separated list."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -153,7 +173,32 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
         path=args.path,
         log_level=args.log_level,
         timeout=args.timeout,
+        include_tags=tuple(combine_list_options(args.include_tag, "INCLUDE_TAGS")),
+        exclude_tags=tuple(combine_list_options(args.exclude_tag, "EXCLUDE_TAGS")),
     )
+
+
+def combine_list_options(values: list[str], env_name: str) -> list[str]:
+    combined = []
+    for value in values:
+        combined.extend(split_csv(value))
+    combined.extend(split_csv(os.getenv(env_name, "")))
+    return unique_ordered([value.strip() for value in combined if value.strip()])
+
+
+def split_csv(value: str) -> list[str]:
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def unique_ordered(values: list[str]) -> list[str]:
+    seen = set()
+    result = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def load_openapi_spec(path: Path) -> dict:
@@ -162,6 +207,88 @@ def load_openapi_spec(path: Path) -> dict:
     if not isinstance(spec, dict) or not isinstance(spec.get("paths"), dict):
         raise SystemExit(f"OpenAPI document must contain a paths object: {path}")
     return spec
+
+
+def filter_openapi_by_tags(spec: dict, config: ServerConfig) -> dict:
+    include_tags = normalized_tag_set(config.include_tags)
+    exclude_tags = normalized_tag_set(config.exclude_tags)
+    if not include_tags and not exclude_tags:
+        return spec
+
+    filtered = dict(spec)
+    filtered_paths = {}
+    operation_count = 0
+    kept_count = 0
+
+    for path, path_item in (spec.get("paths") or {}).items():
+        if not isinstance(path_item, dict):
+            continue
+        filtered_path_item = {
+            key: value
+            for key, value in path_item.items()
+            if key.startswith("x-") or key in {"parameters", "summary", "description"}
+        }
+        for method, operation in path_item.items():
+            if method.lower() not in {"get", "put", "post", "delete", "options", "head", "patch", "trace"}:
+                continue
+            operation_count += 1
+            if operation_matches_tag_filter(operation, include_tags, exclude_tags):
+                filtered_path_item[method] = operation
+                kept_count += 1
+        if has_operation(filtered_path_item):
+            filtered_paths[path] = filtered_path_item
+
+    if operation_count and kept_count == 0:
+        raise SystemExit(
+            "Tag filters removed every OpenAPI operation. "
+            f"include={list(config.include_tags)} exclude={list(config.exclude_tags)}"
+        )
+
+    filtered["paths"] = filtered_paths
+    filtered["tags"] = [
+        tag
+        for tag in spec.get("tags") or []
+        if not isinstance(tag, dict)
+        or normalize_tag(tag.get("name")) in tags_used_by_paths(filtered_paths)
+    ]
+    return filtered
+
+
+def operation_matches_tag_filter(operation: object, include_tags: set[str], exclude_tags: set[str]) -> bool:
+    if not isinstance(operation, dict):
+        return False
+    tags = normalized_tag_set(operation.get("tags") or [])
+    if include_tags and not tags.intersection(include_tags):
+        return False
+    if exclude_tags and tags.intersection(exclude_tags):
+        return False
+    return True
+
+
+def has_operation(path_item: dict) -> bool:
+    return any(
+        key.lower() in {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+        for key in path_item
+    )
+
+
+def tags_used_by_paths(paths: dict) -> set[str]:
+    tags = set()
+    for path_item in paths.values():
+        if not isinstance(path_item, dict):
+            continue
+        for operation in path_item.values():
+            if isinstance(operation, dict):
+                tags.update(normalized_tag_set(operation.get("tags") or []))
+    return tags
+
+
+def normalized_tag_set(values) -> set[str]:
+    return {normalize_tag(value) for value in values if normalize_tag(value)}
+
+
+def normalize_tag(value) -> str:
+    return str(value).strip().casefold() if value is not None else ""
 
 
 def api_key_for_current_request(config: ServerConfig) -> str | None:
@@ -232,7 +359,7 @@ def create_mcp_server(config: ServerConfig) -> FastMCP:
         timeout=config.timeout,
     )
     return FastMCP.from_openapi(
-        openapi_spec=load_openapi_spec(config.openapi_path),
+        openapi_spec=filter_openapi_by_tags(load_openapi_spec(config.openapi_path), config),
         client=api_client,
         name=config.name,
     )

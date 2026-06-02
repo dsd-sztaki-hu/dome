@@ -25,6 +25,8 @@ python server.py \
   --openapi ../dataverse/target/classes/META-INF/openapi.json \
   --api-base-url http://127.0.0.1:8080/api/ \
   --api-key-mode request-header \
+  --include-tag Datasets \
+  --include-tag Files \
   --transport streamable-http \
   --host 127.0.0.1 \
   --port 8000
@@ -64,6 +66,8 @@ FASTMCP_TRANSPORT=streamable-http
 FASTMCP_HOST=127.0.0.1
 FASTMCP_PORT=8000
 FASTMCP_PATH=/mcp
+INCLUDE_TAGS=Datasets,Files
+# EXCLUDE_TAGS=Admin
 ```
 
 API key modes:
@@ -71,6 +75,79 @@ API key modes:
 - `request-header`: read `X-Dataverse-key` from each incoming HTTP MCP request.
 - `env`: read `DATAVERSE_API_TOKEN` from the server process.
 - `none`: do not add a Dataverse API key to upstream requests.
+
+## Tag Filtering
+
+The server can filter the OpenAPI document before it creates MCP tools. This is
+useful when the full Dataverse API would expose too many tools to a client.
+
+Expose only selected resource groups:
+
+```bash
+python server.py \
+  --openapi ../dataverse/target/classes/META-INF/openapi.json \
+  --include-tag Datasets \
+  --include-tag Files \
+  --api-key-mode request-header \
+  --transport streamable-http
+```
+
+Exclude administrative tools:
+
+```bash
+python server.py \
+  --openapi ../dataverse/target/classes/META-INF/openapi.json \
+  --exclude-tag Admin \
+  --api-key-mode request-header \
+  --transport streamable-http
+```
+
+Environment variable equivalents:
+
+```env
+INCLUDE_TAGS=Datasets,Files
+EXCLUDE_TAGS=Admin
+```
+
+Suggested profiles:
+
+```env
+# Data steward: create, edit, search, publish, and organize datasets/files.
+INCLUDE_TAGS=Datasets,Dataverses,Files,Search,Licenses,Dataset Fields
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications
+```
+
+```env
+# Read-only discovery: browsing, search, download, and installation info.
+# Use API_KEY_MODE=none only when all selected endpoints are public.
+INCLUDE_TAGS=Info,Search,Access,Datasets,Dataverses,Files,Licenses
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Dataset Fields
+```
+
+```env
+# Repository admin: administration plus users, roles, and notifications.
+INCLUDE_TAGS=Admin,Users,Roles,Notifications,Info
+```
+
+```env
+# Data access: file and dataset download/access workflows.
+INCLUDE_TAGS=Access,Files,Datasets
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications
+```
+
+```env
+# Metadata curator: metadata fields, dataset metadata, and licenses.
+INCLUDE_TAGS=Datasets,Dataset Fields,Licenses,Info
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Access
+```
+
+```env
+# Full API except admin.
+EXCLUDE_TAGS=Admin
+```
+
+`--include-tag` and `--exclude-tag` can be repeated. If the filters remove every
+operation, the server exits with a clear error.
 
 ## MCP Client Configuration
 
