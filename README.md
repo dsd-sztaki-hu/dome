@@ -111,39 +111,56 @@ EXCLUDE_TAGS=Admin
 
 Suggested profiles:
 
+Current generated tag groups are:
+
+```text
+Access, Admin, Users, Datasets, Dataset Fields, Dataverse Featured Items,
+Dataverses, Files, External Tools, Info, Licenses, Metadata, Notifications,
+Roles, Search, Workflows
+```
+
 ```env
 # Data steward: create, edit, search, publish, and organize datasets/files.
-INCLUDE_TAGS=Datasets,Dataverses,Files,Search,Licenses,Dataset Fields
-EXCLUDE_TAGS=Admin,Users,Roles,Notifications
+INCLUDE_TAGS=Datasets,Dataverses,Files,Search,Licenses,Dataset Fields,Metadata
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Workflows,External Tools,Dataverse Featured Items
 ```
 
 ```env
 # Read-only discovery: browsing, search, download, and installation info.
 # Use API_KEY_MODE=none only when all selected endpoints are public.
-INCLUDE_TAGS=Info,Search,Access,Datasets,Dataverses,Files,Licenses
-EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Dataset Fields
+INCLUDE_TAGS=Info,Search,Access,Datasets,Dataverses,Files,Licenses,Metadata
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Dataset Fields,Workflows,External Tools,Dataverse Featured Items
 ```
 
 ```env
-# Repository admin: administration plus users, roles, and notifications.
-INCLUDE_TAGS=Admin,Users,Roles,Notifications,Info
+# Repository admin: administration plus users, roles, notifications, workflows,
+# integrations, and featured-item management.
+INCLUDE_TAGS=Admin,Users,Roles,Notifications,Info,Workflows,External Tools,Dataverse Featured Items,Metadata
 ```
 
 ```env
 # Data access: file and dataset download/access workflows.
-INCLUDE_TAGS=Access,Files,Datasets
-EXCLUDE_TAGS=Admin,Users,Roles,Notifications
+INCLUDE_TAGS=Access,Files,Datasets,Licenses
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Workflows,External Tools,Dataverse Featured Items
 ```
 
 ```env
-# Metadata curator: metadata fields, dataset metadata, and licenses.
-INCLUDE_TAGS=Datasets,Dataset Fields,Licenses,Info
-EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Access
+# Metadata curator: metadata blocks, dataset metadata, field definitions,
+# licenses, and controlled vocabularies.
+INCLUDE_TAGS=Datasets,Dataverses,Dataset Fields,Metadata,Licenses,Info
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Access,Workflows,External Tools,Dataverse Featured Items
 ```
 
 ```env
-# Full API except admin.
-EXCLUDE_TAGS=Admin
+# Collection manager: dataverse collection setup, featured items, dataset
+# organization, and collection-facing metadata.
+INCLUDE_TAGS=Dataverses,Dataverse Featured Items,Datasets,Files,Licenses,Metadata
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Workflows,External Tools
+```
+
+```env
+# Full API except administrative groups.
+EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Workflows,External Tools,Dataverse Featured Items
 ```
 
 `--include-tag` and `--exclude-tag` can be repeated. If the filters remove every
