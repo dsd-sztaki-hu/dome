@@ -8,6 +8,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from fastmcp import FastMCP
@@ -24,7 +25,7 @@ DEFAULT_API_KEY_ENV = "DATAVERSE_API_TOKEN"
 @dataclass(frozen=True)
 class ServerConfig:
     name: str
-    openapi_path: Path
+    openapi_source: str
     api_base_url: str
     api_key_header: str
     api_key_env: str
@@ -61,9 +62,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--openapi",
-        type=Path,
-        default=Path(os.getenv("OPENAPI_PATH", str(DEFAULT_OPENAPI_PATH))),
-        help="Path to the OpenAPI JSON file.",
+        default=os.getenv("OPENAPI_PATH", str(DEFAULT_OPENAPI_PATH)),
+        help="Path or HTTP(S) URL to the OpenAPI JSON file.",
     )
     parser.add_argument(
         "--api-base-url",
@@ -145,9 +145,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_config(args: argparse.Namespace) -> ServerConfig:
-    openapi_path = args.openapi.expanduser().resolve()
-    if not openapi_path.exists():
-        raise SystemExit(f"OpenAPI file not found: {openapi_path}")
+    openapi_source = normalize_openapi_source(args.openapi)
 
     if not args.api_base_url:
         raise SystemExit(
@@ -162,7 +160,7 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
 
     return ServerConfig(
         name=args.name,
-        openapi_path=openapi_path,
+        openapi_source=openapi_source,
         api_base_url=args.api_base_url,
         api_key_header=args.api_key_header,
         api_key_env=args.api_key_env,
@@ -201,12 +199,49 @@ def unique_ordered(values: list[str]) -> list[str]:
     return result
 
 
-def load_openapi_spec(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as handle:
-        spec = json.load(handle)
+def normalize_openapi_source(value: str) -> str:
+    source = str(value).strip()
+    if not source:
+        raise SystemExit("OpenAPI source is required. Pass --openapi or set OPENAPI_PATH.")
+
+    if is_http_url(source):
+        return source
+
+    path = Path(source).expanduser().resolve()
+    if not path.exists():
+        raise SystemExit(f"OpenAPI file not found: {path}")
+    return str(path)
+
+
+def is_http_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def load_openapi_spec(source: str, timeout: float) -> dict:
+    if is_http_url(source):
+        spec = fetch_openapi_spec(source, timeout)
+    else:
+        with Path(source).open("r", encoding="utf-8") as handle:
+            spec = json.load(handle)
     if not isinstance(spec, dict) or not isinstance(spec.get("paths"), dict):
-        raise SystemExit(f"OpenAPI document must contain a paths object: {path}")
+        raise SystemExit(f"OpenAPI document must contain a paths object: {source}")
     return spec
+
+
+def fetch_openapi_spec(url: str, timeout: float) -> dict:
+    try:
+        response = httpx.get(url, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as exc:
+        raise SystemExit(
+            f"OpenAPI URL returned HTTP {exc.response.status_code}: {url}"
+        ) from exc
+    except httpx.RequestError as exc:
+        raise SystemExit(f"Could not fetch OpenAPI URL {url}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"OpenAPI URL did not return valid JSON: {url}") from exc
 
 
 def filter_openapi_by_tags(spec: dict, config: ServerConfig) -> dict:
@@ -359,7 +394,9 @@ def create_mcp_server(config: ServerConfig) -> FastMCP:
         timeout=config.timeout,
     )
     return FastMCP.from_openapi(
-        openapi_spec=filter_openapi_by_tags(load_openapi_spec(config.openapi_path), config),
+        openapi_spec=filter_openapi_by_tags(
+            load_openapi_spec(config.openapi_source, config.timeout), config
+        ),
         client=api_client,
         name=config.name,
     )

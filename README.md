@@ -3,9 +3,9 @@
 Configurable FastMCP server for exposing a Dataverse OpenAPI document as MCP
 tools.
 
-The server loads an OpenAPI JSON file at startup. You do not need to regenerate
-this project when the OpenAPI file changes; restart the server with the updated
-`--openapi` path.
+The server loads an OpenAPI JSON document at startup from a local file path or
+an HTTP(S) URL. You do not need to regenerate this project when the OpenAPI file
+changes; restart the server with the updated `--openapi` source.
 
 ## Install
 
@@ -50,7 +50,8 @@ python server.py \
   --transport stdio
 ```
 
-If `--openapi` is omitted, the server uses `./openapi.json`.
+If `--openapi` is omitted, the server uses `./openapi.json`. You can also pass
+an HTTP(S) URL, for example `--openapi http://127.0.0.1:8080/openapi.json`.
 
 ## Environment
 
@@ -68,6 +69,12 @@ FASTMCP_PORT=8000
 FASTMCP_PATH=/mcp
 INCLUDE_TAGS=Datasets,Files
 # EXCLUDE_TAGS=Admin
+```
+
+`OPENAPI_PATH` can also be an HTTP(S) URL:
+
+```env
+OPENAPI_PATH=http://127.0.0.1:8080/openapi.json
 ```
 
 API key modes:
