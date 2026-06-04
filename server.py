@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -16,6 +18,7 @@ from fastmcp.server.dependencies import get_http_headers
 
 
 DEFAULT_OPENAPI_PATH = Path(__file__).with_name("openapi.json")
+DEFAULT_ENV_PATH = Path(__file__).with_name(".env")
 DEFAULT_SERVER_NAME = "Dataverse FastMCP"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8080/api/"
 DEFAULT_API_KEY_HEADER = "X-Dataverse-key"
@@ -54,6 +57,7 @@ class DataverseApiKeyAuth(httpx.Auth):
 
 
 def parse_args() -> argparse.Namespace:
+    load_env_file(DEFAULT_ENV_PATH)
     parser = argparse.ArgumentParser(description=f"Run {DEFAULT_SERVER_NAME}.")
     parser.add_argument(
         "--name",
@@ -176,6 +180,33 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
     )
 
 
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+
+        os.environ[key] = unquote_env_value(value.strip())
+
+
+def unquote_env_value(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
 def combine_list_options(values: list[str], env_name: str) -> list[str]:
     combined = []
     for value in values:
@@ -207,10 +238,23 @@ def normalize_openapi_source(value: str) -> str:
     if is_http_url(source):
         return source
 
-    path = Path(source).expanduser().resolve()
-    if not path.exists():
-        raise SystemExit(f"OpenAPI file not found: {path}")
+    path = resolve_openapi_path(source)
+    if path is None:
+        raise SystemExit(f"OpenAPI file not found: {Path(source).expanduser().resolve()}")
     return str(path)
+
+
+def resolve_openapi_path(source: str) -> Path | None:
+    path = Path(source).expanduser()
+    candidates = [path]
+    if not path.is_absolute():
+        candidates.append(DEFAULT_ENV_PATH.parent / path)
+
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.exists():
+            return resolved
+    return None
 
 
 def is_http_url(value: str) -> bool:
@@ -402,6 +446,35 @@ def create_mcp_server(config: ServerConfig) -> FastMCP:
     )
 
 
+def print_served_tools(config: ServerConfig, mcp: FastMCP) -> None:
+    tools = asyncio.run(mcp.list_tools(run_middleware=False))
+    print(
+        f"{config.name} serving {len(tools)} MCP tool(s) from {config.openapi_source}",
+        file=sys.stderr,
+        flush=True,
+    )
+    if config.include_tags or config.exclude_tags:
+        print(
+            "Tag filters: "
+            f"include={list(config.include_tags) or '*'} "
+            f"exclude={list(config.exclude_tags) or '[]'}",
+            file=sys.stderr,
+            flush=True,
+        )
+    for tool in sorted(tools, key=lambda item: item.name):
+        tags = sorted(str(tag) for tag in (tool.tags or []))
+        tag_text = f" [{', '.join(tags)}]" if tags else ""
+        description = first_line(tool.description)
+        suffix = f" - {description}" if description else ""
+        print(f"  - {tool.name}{tag_text}{suffix}", file=sys.stderr, flush=True)
+
+
+def first_line(value: str | None) -> str:
+    if not value:
+        return ""
+    return " ".join(value.strip().splitlines()[0].split())
+
+
 def run_server(config: ServerConfig, mcp: FastMCP) -> None:
     if config.transport == "stdio":
         kwargs = {}
@@ -423,7 +496,9 @@ def run_server(config: ServerConfig, mcp: FastMCP) -> None:
 
 def main() -> None:
     config = build_config(parse_args())
-    run_server(config, create_mcp_server(config))
+    mcp = create_mcp_server(config)
+    print_served_tools(config, mcp)
+    run_server(config, mcp)
 
 
 if __name__ == "__main__":

@@ -38,6 +38,9 @@ The MCP endpoint is:
 http://127.0.0.1:8000/mcp
 ```
 
+At startup, the server writes the exact MCP tool list it will serve to stderr,
+including the active include/exclude tag filters.
+
 Local stdio mode, where the user running the process owns the Dataverse API
 token:
 
@@ -70,6 +73,10 @@ FASTMCP_PATH=/mcp
 INCLUDE_TAGS=Datasets,Files
 # EXCLUDE_TAGS=Admin
 ```
+
+The server automatically loads a `.env` file placed next to `server.py` before
+reading CLI defaults. Values already exported in the process environment take
+precedence over `.env` values.
 
 `OPENAPI_PATH` can also be an HTTP(S) URL:
 
