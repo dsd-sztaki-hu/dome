@@ -23,6 +23,17 @@ DEFAULT_SERVER_NAME = "Dataverse FastMCP"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8080/api/"
 DEFAULT_API_KEY_HEADER = "X-Dataverse-key"
 DEFAULT_API_KEY_ENV = "DATAVERSE_API_TOKEN"
+DEFAULT_API_KEY_SECURITY_SCHEME = "DataverseApiKey"
+HTTP_METHODS = {
+    "get",
+    "put",
+    "post",
+    "delete",
+    "options",
+    "head",
+    "patch",
+    "trace",
+}
 
 
 @dataclass(frozen=True)
@@ -43,15 +54,51 @@ class ServerConfig:
     exclude_tags: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class OperationAuthRule:
+    method: str
+    path_template: str
+    requires_api_key: bool
+
+
+@dataclass(frozen=True)
+class OperationAuthRules:
+    base_path: str
+    rules: tuple[OperationAuthRule, ...]
+
+    def requires_api_key(self, request: httpx.Request) -> bool:
+        method = request.method.lower()
+        path = self.relative_request_path(request.url.path)
+        for rule in self.rules:
+            if rule.method == method and path_matches_template(rule.path_template, path):
+                return rule.requires_api_key
+        return False
+
+    def relative_request_path(self, request_path: str) -> str:
+        path = normalize_url_path(request_path)
+        if self.base_path == "/":
+            return path
+        if path == self.base_path:
+            return "/"
+        prefix = f"{self.base_path}/"
+        if path.startswith(prefix):
+            return normalize_url_path(path[len(self.base_path):])
+        return path
+
+
 class DataverseApiKeyAuth(httpx.Auth):
-    def __init__(self, config: ServerConfig) -> None:
+    def __init__(self, config: ServerConfig, operation_auth: OperationAuthRules) -> None:
         self.config = config
+        self.operation_auth = operation_auth
 
     async def async_auth_flow(self, request: httpx.Request):
-        api_key = api_key_for_current_request(self.config)
+        requires_api_key = self.operation_auth.requires_api_key(request)
+        api_key = api_key_for_current_request(
+            self.config, require_http_context=requires_api_key
+        )
         if api_key:
             request.headers[self.config.api_key_header] = api_key
-        elif self.config.api_key_mode != "none":
+        elif self.config.api_key_mode != "none" and requires_api_key:
             raise RuntimeError(api_key_missing_message(self.config))
         yield request
 
@@ -91,7 +138,8 @@ def parse_args() -> argparse.Namespace:
         help=(
             "How to supply the Dataverse API key: 'env' reads --api-key-env "
             "from this process, 'request-header' forwards --api-key-header "
-            "from each incoming HTTP MCP request, and 'none' sends no key."
+            "from each incoming HTTP MCP request and falls back to --api-key-env, "
+            "and 'none' sends no key."
         ),
     )
     parser.add_argument(
@@ -308,7 +356,7 @@ def filter_openapi_by_tags(spec: dict, config: ServerConfig) -> dict:
             if key.startswith("x-") or key in {"parameters", "summary", "description"}
         }
         for method, operation in path_item.items():
-            if method.lower() not in {"get", "put", "post", "delete", "options", "head", "patch", "trace"}:
+            if method.lower() not in HTTP_METHODS:
                 continue
             operation_count += 1
             if operation_matches_tag_filter(operation, include_tags, exclude_tags):
@@ -345,10 +393,7 @@ def operation_matches_tag_filter(operation: object, include_tags: set[str], excl
 
 
 def has_operation(path_item: dict) -> bool:
-    return any(
-        key.lower() in {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
-        for key in path_item
-    )
+    return any(key.lower() in HTTP_METHODS for key in path_item)
 
 
 def tags_used_by_paths(paths: dict) -> set[str]:
@@ -370,7 +415,99 @@ def normalize_tag(value) -> str:
     return str(value).strip().casefold() if value is not None else ""
 
 
-def api_key_for_current_request(config: ServerConfig) -> str | None:
+def build_operation_auth_rules(spec: dict, config: ServerConfig) -> OperationAuthRules:
+    api_key_schemes = api_key_security_scheme_names(spec, config.api_key_header)
+    root_security = spec.get("security") if "security" in spec else None
+    rules: list[OperationAuthRule] = []
+
+    for path, path_item in (spec.get("paths") or {}).items():
+        if not isinstance(path_item, dict):
+            continue
+        for method, operation in path_item.items():
+            method_name = method.lower()
+            if method_name not in HTTP_METHODS or not isinstance(operation, dict):
+                continue
+            security = (
+                operation.get("security") if "security" in operation else root_security
+            )
+            rules.append(
+                OperationAuthRule(
+                    method=method_name,
+                    path_template=normalize_url_path(path),
+                    requires_api_key=security_requires_api_key(security, api_key_schemes),
+                )
+            )
+
+    return OperationAuthRules(
+        base_path=normalize_url_path(urlparse(config.api_base_url).path),
+        rules=tuple(rules),
+    )
+
+
+def api_key_security_scheme_names(spec: dict, header_name: str) -> set[str]:
+    schemes = ((spec.get("components") or {}).get("securitySchemes") or {})
+    names = set()
+    for scheme_name, scheme in schemes.items():
+        if not isinstance(scheme, dict):
+            continue
+        if (
+            str(scheme.get("type", "")).casefold() == "apikey"
+            and str(scheme.get("in", "")).casefold() == "header"
+            and str(scheme.get("name", "")).casefold() == header_name.casefold()
+        ):
+            names.add(str(scheme_name))
+
+    if DEFAULT_API_KEY_SECURITY_SCHEME in schemes:
+        names.add(DEFAULT_API_KEY_SECURITY_SCHEME)
+    return names
+
+
+def security_requires_api_key(security: object, api_key_schemes: set[str]) -> bool:
+    if not security or not api_key_schemes:
+        return False
+    if not isinstance(security, list):
+        return False
+
+    has_requirement = False
+    for requirement in security:
+        if not isinstance(requirement, dict):
+            continue
+        has_requirement = True
+        if not requirement:
+            return False
+        if not api_key_schemes.intersection(str(name) for name in requirement):
+            return False
+    return has_requirement
+
+
+def path_matches_template(template: str, path: str) -> bool:
+    template_parts = split_path(template)
+    path_parts = split_path(path)
+    if len(template_parts) != len(path_parts):
+        return False
+
+    return all(
+        is_path_parameter(template_part) or template_part == path_part
+        for template_part, path_part in zip(template_parts, path_parts)
+    )
+
+
+def split_path(path: str) -> list[str]:
+    return [part for part in normalize_url_path(path).split("/") if part]
+
+
+def is_path_parameter(segment: str) -> bool:
+    return segment.startswith("{") and segment.endswith("}")
+
+
+def normalize_url_path(path: str) -> str:
+    value = "/" + str(path or "").strip("/")
+    return value if value != "" else "/"
+
+
+def api_key_for_current_request(
+    config: ServerConfig, require_http_context: bool = True
+) -> str | None:
     if config.api_key_mode == "none":
         return None
 
@@ -378,14 +515,19 @@ def api_key_for_current_request(config: ServerConfig) -> str | None:
         return os.getenv(config.api_key_env)
 
     if config.api_key_mode == "request-header":
+        fallback_api_key = os.getenv(config.api_key_env)
         try:
             headers = get_http_headers()
         except RuntimeError as exc:
+            if fallback_api_key:
+                return fallback_api_key
+            if not require_http_context:
+                return None
             raise RuntimeError(
                 f"{config.api_key_mode} mode requires an HTTP MCP transport so "
                 f"callers can provide {config.api_key_header}."
             ) from exc
-        return case_insensitive_header(headers, config.api_key_header)
+        return case_insensitive_header(headers, config.api_key_header) or fallback_api_key
 
     raise RuntimeError(f"Unsupported API key mode: {config.api_key_mode}")
 
@@ -431,16 +573,19 @@ def static_api_headers() -> dict[str, str]:
 
 
 def create_mcp_server(config: ServerConfig) -> FastMCP:
+    openapi_spec = filter_openapi_by_tags(
+        load_openapi_spec(config.openapi_source, config.timeout), config
+    )
     api_client = httpx.AsyncClient(
         base_url=config.api_base_url,
         headers=static_api_headers(),
-        auth=DataverseApiKeyAuth(config),
+        auth=DataverseApiKeyAuth(
+            config, build_operation_auth_rules(openapi_spec, config)
+        ),
         timeout=config.timeout,
     )
     return FastMCP.from_openapi(
-        openapi_spec=filter_openapi_by_tags(
-            load_openapi_spec(config.openapi_source, config.timeout), config
-        ),
+        openapi_spec=openapi_spec,
         client=api_client,
         name=config.name,
     )

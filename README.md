@@ -86,9 +86,14 @@ OPENAPI_PATH=http://127.0.0.1:8080/openapi.json
 
 API key modes:
 
-- `request-header`: read `X-Dataverse-key` from each incoming HTTP MCP request.
+- `request-header`: forward `X-Dataverse-key` from each incoming HTTP MCP
+  request, falling back to `DATAVERSE_API_TOKEN` when it is set.
 - `env`: read `DATAVERSE_API_TOKEN` from the server process.
 - `none`: do not add a Dataverse API key to upstream requests.
+
+For `request-header` and `env`, the server only fails locally when the matched
+OpenAPI operation requires the `DataverseApiKey` security scheme and no key is
+available. Public operations are called without `X-Dataverse-key`.
 
 ## Tag Filtering
 
@@ -182,16 +187,19 @@ operation, the server exits with a clear error.
 
 ## MCP Client Configuration
 
-When `API_KEY_MODE=request-header`, each MCP client must send the user's
-Dataverse API token as an HTTP header on every MCP request:
+When `API_KEY_MODE=request-header`, MCP clients can send the user's Dataverse
+API token as an HTTP header on MCP requests that call authenticated Dataverse
+operations:
 
 ```http
 X-Dataverse-key: <user Dataverse API token>
 ```
 
 For a central service, replace the local URL in these examples with the deployed
-HTTPS endpoint. Keep the token in each user's local client configuration or
-secret store. Do not commit real Dataverse API tokens.
+HTTPS endpoint. Public operations can omit the header. Authenticated operations
+use the incoming header when present, otherwise the server falls back to
+`DATAVERSE_API_TOKEN` if configured. Keep tokens in each user's local client
+configuration or secret store. Do not commit real Dataverse API tokens.
 
 ### Codex
 
