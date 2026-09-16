@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Configurable FastMCP server for an OpenAPI specification."""
+"""Configurable DOME MCP server for an OpenAPI specification."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from fastmcp.server.dependencies import get_http_headers
 
 DEFAULT_OPENAPI_PATH = Path(__file__).with_name("openapi.json")
 DEFAULT_ENV_PATH = Path(__file__).with_name(".env")
-DEFAULT_SERVER_NAME = "Dataverse FastMCP"
+DEFAULT_SERVER_NAME = "Dataverse DOME MCP"
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8080/api/"
 DEFAULT_API_KEY_HEADER = "X-Dataverse-key"
 DEFAULT_API_KEY_ENV = "DATAVERSE_API_TOKEN"
@@ -93,6 +93,11 @@ class DataverseApiKeyAuth(httpx.Auth):
 
     async def async_auth_flow(self, request: httpx.Request):
         requires_api_key = self.operation_auth.requires_api_key(request)
+        request.headers.pop(self.config.api_key_header, None)
+        if not requires_api_key:
+            yield request
+            return
+
         api_key = api_key_for_current_request(
             self.config, require_http_context=requires_api_key
         )
@@ -108,8 +113,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=f"Run {DEFAULT_SERVER_NAME}.")
     parser.add_argument(
         "--name",
-        default=os.getenv("FASTMCP_SERVER_NAME", DEFAULT_SERVER_NAME),
-        help="FastMCP server name.",
+        default=os.getenv("MCP_SERVER_NAME", DEFAULT_SERVER_NAME),
+        help="MCP server name.",
     )
     parser.add_argument(
         "--openapi",
@@ -145,29 +150,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--transport",
         choices=["stdio", "http", "streamable-http", "sse"],
-        default=os.getenv("FASTMCP_TRANSPORT", "stdio"),
+        default=os.getenv("MCP_TRANSPORT", "stdio"),
         help="MCP transport to use.",
     )
     parser.add_argument(
         "--host",
-        default=os.getenv("FASTMCP_HOST", "127.0.0.1"),
+        default=os.getenv("MCP_HOST", "127.0.0.1"),
         help="Host for HTTP/SSE transports.",
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.getenv("FASTMCP_PORT", "8000")),
+        default=int(os.getenv("MCP_PORT", "8000")),
         help="Port for HTTP/SSE transports.",
     )
     parser.add_argument(
         "--path",
-        default=os.getenv("FASTMCP_PATH", "/mcp"),
+        default=os.getenv("MCP_PATH", "/mcp"),
         help="Path for HTTP/SSE transports.",
     )
     parser.add_argument(
         "--log-level",
-        default=os.getenv("FASTMCP_LOG_LEVEL") or None,
-        help="Optional FastMCP log level.",
+        default=os.getenv("MCP_LOG_LEVEL") or None,
+        help="Optional MCP log level.",
     )
     parser.add_argument(
         "--timeout",
