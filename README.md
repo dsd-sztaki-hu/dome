@@ -1,11 +1,19 @@
-# Dataverse FastMCP
+# Dataverse OpenAPI MCP Engine (DOME) - A Configurable Dataverse MCP Server
 
-Configurable FastMCP server for exposing a Dataverse OpenAPI document as MCP
-tools.
 
-The server loads an OpenAPI JSON document at startup from a local file path or
-an HTTP(S) URL. You do not need to regenerate this project when the OpenAPI file
-changes; restart the server with the updated `--openapi` source.
+DOME is a configurable MCP engine that turns a Dataverse OpenAPI document into MCP tools,
+making selected parts of the Dataverse API available to AI agents, agent harnesses, and other
+MCP clients.
+
+The Dataverse OpenAPI specification defines more than 500 endpoints, but many are administrative or
+otherwise unnecessary for a given client or use case. DOME lets you control which parts of the API
+are exposed as MCP tools by filtering OpenAPI operations by their functional groups.
+
+For example, a typical data steward may need access to search, dataset creation, metadata editing,
+and file upload, while having no need for user management or system settings. DOME can expose only
+those relevant capabilities, keeping the MCP tool surface focused on the tasks the client actually
+needs.
+
 
 ## Install
 
@@ -17,12 +25,15 @@ pip install -r requirements.txt
 
 ## Run
 
-Central HTTP service mode, where each MCP caller sends their own Dataverse API
-token:
+### Central HTTP service mode
+
+If you want to run a central HTTP service next to your Dataverse installation that multiple MCP
+clients can call, use `--api-key-mode request-header` when starting DOME:
+
 
 ```bash
-python server.py \
-  --openapi ../dataverse/target/classes/META-INF/openapi.json \
+python dome.py \
+  --openapi http://127.0.0.1:8080/openapi \
   --api-base-url http://127.0.0.1:8080/api/ \
   --api-key-mode request-header \
   --include-tag Datasets \
@@ -41,12 +52,35 @@ http://127.0.0.1:8000/mcp
 At startup, the server writes the exact MCP tool list it will serve to stderr,
 including the active include/exclude tag filters.
 
-Local stdio mode, where the user running the process owns the Dataverse API
-token:
+The same central-service configuration can be placed in a `.env` file next to
+`dome.py` instead of passing the CLI options:
+
+```env
+OPENAPI_PATH=http://127.0.0.1:8080/openapi
+API_BASE_URL=http://127.0.0.1:8080/api/
+API_KEY_MODE=request-header
+INCLUDE_TAGS=Datasets,Files
+MCP_TRANSPORT=streamable-http
+MCP_HOST=127.0.0.1
+MCP_PORT=8000
+```
+
+Then run:
+
+```bash
+python dome.py
+```
+
+### Local stdio mode
+
+DOME can also run locally on the same machine where the MC client (eg. Codex or Claude Code) is
+running. In this mode, the client and server communicate over `stdio`, and the server reads
+the Dataverse API token from an environment variable
+
 
 ```bash
 export DATAVERSE_API_TOKEN="your-token"
-python server.py \
+python dome.py \
   --openapi ../dataverse/target/classes/META-INF/openapi.json \
   --api-base-url http://127.0.0.1:8080/api/ \
   --api-key-mode env \
@@ -66,15 +100,15 @@ API_BASE_URL=http://127.0.0.1:8080/api/
 API_KEY_MODE=request-header
 API_KEY_HEADER=X-Dataverse-key
 API_KEY_ENV=DATAVERSE_API_TOKEN
-FASTMCP_TRANSPORT=streamable-http
-FASTMCP_HOST=127.0.0.1
-FASTMCP_PORT=8000
-FASTMCP_PATH=/mcp
+MCP_TRANSPORT=streamable-http
+MCP_HOST=127.0.0.1
+MCP_PORT=8000
+MCP_PATH=/mcp
 INCLUDE_TAGS=Datasets,Files
 # EXCLUDE_TAGS=Admin
 ```
 
-The server automatically loads a `.env` file placed next to `server.py` before
+The server automatically loads a `.env` file placed next to `dome.py` before
 reading CLI defaults. Values already exported in the process environment take
 precedence over `.env` values.
 
@@ -84,16 +118,45 @@ precedence over `.env` values.
 OPENAPI_PATH=http://127.0.0.1:8080/openapi.json
 ```
 
-API key modes:
+API key modes control how DOME obtains a Dataverse API token. The OpenAPI
+operation's `security` declaration controls whether DOME forwards that token to
+the upstream Dataverse request.
 
-- `request-header`: forward `X-Dataverse-key` from each incoming HTTP MCP
-  request, falling back to `DATAVERSE_API_TOKEN` when it is set.
-- `env`: read `DATAVERSE_API_TOKEN` from the server process.
+- `request-header`: for HTTP MCP transports, read `X-Dataverse-key` from the
+  incoming MCP request, falling back to `DATAVERSE_API_TOKEN` when it is set.
+- `env`: read `DATAVERSE_API_TOKEN` from the DOME server process.
 - `none`: do not add a Dataverse API key to upstream requests.
+
+The agent calls MCP tools normally; it does not provide the token as a tool
+argument. The MCP client or host must supply the `X-Dataverse-key` header when
+using `request-header` mode. The client may attach that header to every MCP
+request. DOME only forwards it to Dataverse for operations that require the
+`DataverseApiKey` security scheme and removes it from public upstream calls.
 
 For `request-header` and `env`, the server only fails locally when the matched
 OpenAPI operation requires the `DataverseApiKey` security scheme and no key is
 available. Public operations are called without `X-Dataverse-key`.
+
+Recommended deployment profiles:
+
+Local stdio installation:
+
+```env
+MCP_TRANSPORT=stdio
+API_KEY_MODE=env
+DATAVERSE_API_TOKEN=your-token
+```
+
+Central multi-user HTTP service:
+
+```env
+MCP_TRANSPORT=streamable-http
+API_KEY_MODE=request-header
+# Leave DATAVERSE_API_TOKEN unset so users cannot fall back to a shared token.
+```
+
+`API_KEY_HEADER` and `API_KEY_ENV` are optional. Their defaults are
+`X-Dataverse-key` and `DATAVERSE_API_TOKEN`.
 
 ## Tag Filtering
 
@@ -103,7 +166,7 @@ useful when the full Dataverse API would expose too many tools to a client.
 Expose only selected resource groups:
 
 ```bash
-python server.py \
+python dome.py \
   --openapi ../dataverse/target/classes/META-INF/openapi.json \
   --include-tag Datasets \
   --include-tag Files \
@@ -114,7 +177,7 @@ python server.py \
 Exclude administrative tools:
 
 ```bash
-python server.py \
+python dome.py \
   --openapi ../dataverse/target/classes/META-INF/openapi.json \
   --exclude-tag Admin \
   --api-key-mode request-header \
@@ -187,19 +250,21 @@ operation, the server exits with a clear error.
 
 ## MCP Client Configuration
 
-When `API_KEY_MODE=request-header`, MCP clients can send the user's Dataverse
-API token as an HTTP header on MCP requests that call authenticated Dataverse
-operations:
+When `API_KEY_MODE=request-header`, configure the MCP client or host to send
+the user's Dataverse API token as an HTTP header to DOME:
 
 ```http
 X-Dataverse-key: <user Dataverse API token>
 ```
 
 For a central service, replace the local URL in these examples with the deployed
-HTTPS endpoint. Public operations can omit the header. Authenticated operations
-use the incoming header when present, otherwise the server falls back to
-`DATAVERSE_API_TOKEN` if configured. Keep tokens in each user's local client
-configuration or secret store. Do not commit real Dataverse API tokens.
+HTTPS endpoint. The agent still calls tools normally; the MCP client supplies
+the header separately, rather than exposing the token as a tool parameter. DOME
+uses the incoming header only for authenticated upstream operations. For a
+multi-user central service, leave `DATAVERSE_API_TOKEN` unset so a missing user
+header cannot fall back to a shared server token. Keep tokens in each user's
+local client configuration or secret store. Do not commit real Dataverse API
+tokens.
 
 ### Codex
 
