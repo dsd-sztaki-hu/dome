@@ -1,8 +1,17 @@
 import asyncio
+import io
 import os
+import sys
 import unittest
-from unittest.mock import patch
+from contextlib import redirect_stderr
+from dataclasses import replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
+import dome
+import fastmcp
 import httpx
 
 from dome import (
@@ -10,6 +19,14 @@ from dome import (
     OperationAuthRule,
     OperationAuthRules,
     ServerConfig,
+    create_mcp_server,
+    fetch_openapi_spec,
+    load_env_file,
+    parse_args,
+    print_dome_banner,
+    print_served_tools,
+    run,
+    run_server,
 )
 
 
@@ -25,10 +42,14 @@ def make_config() -> ServerConfig:
         host="127.0.0.1",
         port=8000,
         path="/mcp",
+        show_banner=True,
         log_level=None,
         timeout=30,
         include_tags=(),
         exclude_tags=(),
+        ignore_ssl_errors=False,
+        log_api_key_usage=False,
+        show_tools=True,
     )
 
 

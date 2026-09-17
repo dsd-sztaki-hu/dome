@@ -12,9 +12,25 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
+import fastmcp
 import httpx
+
+try:
+    import httpx2
+except ImportError:  # FastMCP 3.x does not use httpx2.
+    httpx2 = None
+
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
+from fastmcp.utilities.logging import get_logger
+from rich.align import Align
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+
+logger = get_logger(__name__)
 
 
 DEFAULT_OPENAPI_PATH = Path(__file__).with_name("openapi.json")
@@ -24,6 +40,14 @@ DEFAULT_API_BASE_URL = "http://127.0.0.1:8080/api/"
 DEFAULT_API_KEY_HEADER = "X-Dataverse-key"
 DEFAULT_API_KEY_ENV = "DATAVERSE_API_TOKEN"
 DEFAULT_API_KEY_SECURITY_SCHEME = "DataverseApiKey"
+DOME_LOGO = (
+    "██████╗  ██████╗ ███╗   ███╗███████╗\n"
+    "██╔══██╗██╔═══██╗████╗ ████║██╔════╝\n"
+    "██║  ██║██║   ██║██╔████╔██║█████╗  \n"
+    "██║  ██║██║   ██║██║╚██╔╝██║██╔══╝  \n"
+    "██████╔╝╚██████╔╝██║ ╚═╝ ██║███████╗\n"
+    "╚═════╝  ╚═════╝ ╚═╝     ╚═╝╚══════╝"
+)
 HTTP_METHODS = {
     "get",
     "put",
@@ -48,6 +72,10 @@ class ServerConfig:
     host: str
     port: int
     path: str
+    show_banner: bool
+    show_tools: bool
+    log_api_key_usage: bool
+    ignore_ssl_errors: bool
     log_level: str | None
     timeout: float
     include_tags: tuple[str, ...]
@@ -175,6 +203,36 @@ def parse_args() -> argparse.Namespace:
         help="Optional MCP log level.",
     )
     parser.add_argument(
+        "--show-tools",
+        action=argparse.BooleanOptionalAction,
+        default=parse_bool_env("MCP_SHOW_TOOLS", False),
+        help="Print individual MCP tools at startup (default: false).",
+    )
+    parser.add_argument(
+        "--show-banner",
+        action=argparse.BooleanOptionalAction,
+        default=parse_bool_env("MCP_SHOW_BANNER", True),
+        help="Print the DOME startup banner (default: true).",
+    )
+    parser.add_argument(
+        "--log-api-key-usage",
+        action=argparse.BooleanOptionalAction,
+        default=parse_bool_env("MCP_LOG_API_KEY_USAGE", False),
+        help=(
+            "Log when DOME forwards a Dataverse API key upstream; "
+            "never logs the token value (default: false)."
+        ),
+    )
+    parser.add_argument(
+        "--ignore-ssl-errors",
+        action=argparse.BooleanOptionalAction,
+        default=parse_bool_env("MCP_IGNORE_SSL_ERRORS", False),
+        help=(
+            "Disable SSL certificate verification for OpenAPI and Dataverse "
+            "requests (insecure; default: false)."
+        ),
+    )
+    parser.add_argument(
         "--timeout",
         type=float,
         default=float(os.getenv("API_TIMEOUT", "30")),
@@ -199,6 +257,21 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     return parser.parse_args()
+
+
+def parse_bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    normalized = value.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise SystemExit(
+        f"{name} must be one of: 1, 0, true, false, yes, no, on, off."
+    )
 
 
 def build_config(args: argparse.Namespace) -> ServerConfig:
@@ -226,6 +299,10 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
         host=args.host,
         port=args.port,
         path=args.path,
+        show_banner=args.show_banner,
+        show_tools=args.show_tools,
+        log_api_key_usage=args.log_api_key_usage,
+        ignore_ssl_errors=args.ignore_ssl_errors,
         log_level=args.log_level,
         timeout=args.timeout,
         include_tags=tuple(combine_list_options(args.include_tag, "INCLUDE_TAGS")),
@@ -611,12 +688,52 @@ def print_served_tools(config: ServerConfig, mcp: FastMCP) -> None:
             file=sys.stderr,
             flush=True,
         )
+    if not config.show_tools:
+        return
     for tool in sorted(tools, key=lambda item: item.name):
         tags = sorted(str(tag) for tag in (tool.tags or []))
         tag_text = f" [{', '.join(tags)}]" if tags else ""
         description = first_line(tool.description)
         suffix = f" - {description}" if description else ""
         print(f"  - {tool.name}{tag_text}{suffix}", file=sys.stderr, flush=True)
+
+
+def print_dome_banner(config: ServerConfig) -> None:
+    console = Console(file=sys.stderr)
+    endpoint = (
+        "stdio"
+        if config.transport == "stdio"
+        else f"http://{config.host}:{config.port}{config.path}"
+    )
+
+    runtime = Table.grid(padding=(0, 1))
+    runtime.add_column(style="bold cyan", justify="right")
+    runtime.add_column(style="white")
+    runtime.add_row("Server", config.name)
+    runtime.add_row("Transport", config.transport)
+    runtime.add_row("Endpoint", endpoint)
+    runtime.add_row("OpenAPI", config.openapi_source)
+    runtime.add_row("Tool details", "enabled" if config.show_tools else "suppressed")
+    runtime.add_row(
+        "TLS verification",
+        "disabled" if config.ignore_ssl_errors else "enabled",
+    )
+
+    content = Group(
+        Align.center(Text(DOME_LOGO, style="bold cyan")),
+        Align.center(Text("Dataverse OpenAPI MCP Engine", style="bold white")),
+        Text(""),
+        runtime,
+    )
+    console.print(
+        Panel(
+            content,
+            border_style="cyan",
+            title="DOME",
+            title_align="center",
+            padding=(1, 2),
+        )
+    )
 
 
 def first_line(value: str | None) -> str:
@@ -627,7 +744,7 @@ def first_line(value: str | None) -> str:
 
 def run_server(config: ServerConfig, mcp: FastMCP) -> None:
     if config.transport == "stdio":
-        kwargs = {}
+        kwargs = {"show_banner": False}
         if config.log_level:
             kwargs["log_level"] = config.log_level
         mcp.run(**kwargs)
@@ -638,6 +755,7 @@ def run_server(config: ServerConfig, mcp: FastMCP) -> None:
         "host": config.host,
         "port": config.port,
         "path": config.path,
+        "show_banner": False,
     }
     if config.log_level:
         kwargs["log_level"] = config.log_level
@@ -647,6 +765,8 @@ def run_server(config: ServerConfig, mcp: FastMCP) -> None:
 def main() -> None:
     config = build_config(parse_args())
     mcp = create_mcp_server(config)
+    if config.show_banner:
+        print_dome_banner(config)
     print_served_tools(config, mcp)
     run_server(config, mcp)
 

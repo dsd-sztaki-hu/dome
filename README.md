@@ -49,8 +49,12 @@ The MCP endpoint is:
 http://127.0.0.1:8000/mcp
 ```
 
-At startup, the server writes the exact MCP tool list it will serve to stderr,
-including the active include/exclude tag filters.
+At startup, DOME writes the served tool count to stderr, including the active
+include/exclude tag filters. Individual tool names and descriptions are hidden
+by default. Add `--show-tools` to the command to enable the full listing.
+
+DOME also displays a branded startup banner by default. Use `--no-show-banner`
+or set `MCP_SHOW_BANNER=false` to suppress it independently of the tool list.
 
 The same central-service configuration can be placed in a `.env` file next to
 `dome.py` instead of passing the CLI options:
@@ -63,6 +67,14 @@ INCLUDE_TAGS=Datasets,Files
 MCP_TRANSPORT=streamable-http
 MCP_HOST=127.0.0.1
 MCP_PORT=8000
+# Show the DOME startup banner; set false to suppress it.
+MCP_SHOW_BANNER=true
+# Show individual tool names and descriptions; set true to enable listing.
+MCP_SHOW_TOOLS=false
+# Log each upstream request that receives a Dataverse API key; never logs the token.
+MCP_LOG_API_KEY_USAGE=false
+# Disable TLS certificate verification; use only on a trusted network.
+MCP_IGNORE_SSL_ERRORS=false
 ```
 
 Then run:
@@ -104,15 +116,30 @@ MCP_TRANSPORT=streamable-http
 MCP_HOST=127.0.0.1
 MCP_PORT=8000
 MCP_PATH=/mcp
+# Show the DOME startup banner; set false to suppress it.
+MCP_SHOW_BANNER=true
+# Show individual tool names and descriptions; set true to enable listing.
+MCP_SHOW_TOOLS=false
+# Log each upstream request that receives a Dataverse API key; never logs the token.
+MCP_LOG_API_KEY_USAGE=false
+# Disable TLS certificate verification; use only on a trusted network.
+MCP_IGNORE_SSL_ERRORS=false
 INCLUDE_TAGS=Datasets,Files
 # EXCLUDE_TAGS=Admin
 ```
 
 The server automatically loads a `.env` file placed next to `dome.py` before
 reading CLI defaults. Values already exported in the process environment take
-precedence over `.env` values.
+precedence over `.env` values. If a variable appears more than once in the
+`.env` file, the last entry wins.
 
-`OPENAPI_PATH` can also be an HTTP(S) URL:
+`OPENAPI_PATH` can either be path to a local file
+
+```env
+OPENAPI_PATH=./openapi.json
+```
+
+or a URL
 
 ```env
 OPENAPI_PATH=http://127.0.0.1:8080/openapi.json
