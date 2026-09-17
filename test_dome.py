@@ -847,6 +847,7 @@ class ArgumentParsingTests(unittest.TestCase):
             {
                 "INCLUDE_TOOLS": "env-tool,shared-tool",
                 "EXCLUDE_TOOLS": "env-hidden",
+                "MCP_INSTRUCTIONS_FILE": "",
             },
             clear=False,
         ):
