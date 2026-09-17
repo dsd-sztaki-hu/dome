@@ -1,0 +1,889 @@
+{
+  "merge": [
+    {
+      "source": "https://repo.researchdata.hu/openapi?format=json",
+      "operations": "unique"
+    }
+  ],
+  "operations": {
+    "Access_allowAccessRequest": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "Access_datafileBundleWithGuestbookResponse": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Access_datafileWithGuestbookResponse": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Access_datafilesWithGuestbookResponse": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Access_downloadAllFromLatestWithGuestbookResponse": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Access_downloadAllFromVersionWithGuestbookResponse": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Access_requestFileAccess": {
+      "replace": {
+        "requestBody.required": false,
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Admin_convertUserFromBcryptToSha1": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Admin_enableAuthenticationProvider": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "Admin_enableAuthenticationProvider_deprecated": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "Admin_setSuperuserStatus": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "Datasets_addDatasetType": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Datasets_completeMPUpload": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Datasets_createFileEmbargo": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_createFileRetention": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Datasets_deaccessionDataset": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Datasets_deleteMetadata": {
+      "replace": {
+        "requestBody.content.application/ld+json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "requestBody.content.application/json-ld.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_deleteVersionMetadata": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Datasets_editVersionMetadata": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Datasets_editVersionTermsOfAccess": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Datasets_getDatasetExternalToolUrl": {
+      "replace": {
+        "requestBody.required": false,
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_monitorGlobusDownload": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_publishMigratedDataset": {
+      "replace": {
+        "requestBody.content.application/ld+json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "requestBody.content.application/json-ld.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_removeFileEmbargo": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_removeFileRetention": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Datasets_requestGlobusDownload": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_requestGlobusUpload": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_returnToAuthor": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Datasets_setDatasetQuota": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
+      }
+    },
+    "Datasets_setDatasetVersionArchivalStatus": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_updateDatasetTypeLinksWithMetadataBlocks": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Datasets_updateDatasetTypeWithLicenses": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Datasets_updateDraftVersion": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Datasets_updateMultipleFileMetadata": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "Datasets_updateVersionMetadata": {
+      "replace": {
+        "requestBody.content.application/ld+json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "requestBody.content.application/json-ld.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Dataverses_addDataverse": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_addRoot": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_createDataset": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_createTemplate": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_getFeaturedDataverses": {
+      "replace": {
+        "requestBody": null
+      }
+    },
+    "Dataverses_importDataset": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_recreateDataset": {
+      "replace": {
+        "requestBody.content.application/ld+json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "requestBody.content.application/json-ld.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Dataverses_setCollectionQuota": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_setFacets": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_setFeaturedDataverses": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_setMetadataBlocks": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_setMetadataRoot": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_setMetadataRoot_legacy": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_updateDataverse": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_updateInputLevels": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_updateMetadataBlockFacetsRoot": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Dataverses_updateTemplateMetadata": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_updateTemplateTermsOfAccess": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Dataverses_validateDatasetJson": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "ExternalToolsApi_addExternalTool": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "ExternalTools_addExternalTool": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Files_getExternalToolUrl": {
+      "replace": {
+        "requestBody.required": false,
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Files_restrictFileInDataset": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "restrict"
+                  ],
+                  "properties": {
+                    "restrict": {
+                      "type": "boolean"
+                    },
+                    "enableAccessRequest": {
+                      "type": "boolean"
+                    },
+                    "termsOfAccess": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "Files_setFileCategories": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Files_setFileTabularTags": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Guestbooks_createGuestbook": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "Guestbooks_enableGuestbook": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "Guestbooks_updateGuestbook": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "HarvestingClients_createHarvestingClient": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "HarvestingClients_modifyHarvestingClient": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "HarvestingServer_createOaiSet": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "HarvestingServer_modifyOaiSet": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "LDNInbox_acceptMessage": {
+      "replace": {
+        "requestBody.content.application/ld+json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "requestBody.content.application/json-ld.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Prov_addProvFreeForm": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Prov_addProvJson": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "Prov_deleteProvJson": {
+      "replace": {
+        "requestBody": null
+      }
+    },
+    "Prov_getProvFreeForm": {
+      "replace": {
+        "requestBody": null
+      }
+    },
+    "Prov_getProvJson": {
+      "replace": {
+        "requestBody": null
+      }
+    },
+    "SendFeedbackAPI_submitFeedback": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "StorageSites_setPrimary": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "Users_registerOIDCUser": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "WorkflowsAdmin_setDefault": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
+      }
+    }
+  }
+}
