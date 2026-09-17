@@ -30,6 +30,7 @@ from dome import (
     create_mcp_server,
     fetch_openapi_spec,
     filter_openapi_by_tags,
+    load_mcp_instructions,
     load_env_file,
     parse_args,
     print_dome_banner,
@@ -44,6 +45,7 @@ def make_config() -> ServerConfig:
         name="test",
         openapi_source="openapi.json",
         openapi_patch_path=None,
+        instructions_file=None,
         api_base_url="https://beta.dataverse.org/api/",
         api_key_header="X-Dataverse-key",
         api_key_env="DATAVERSE_API_TOKEN",
@@ -686,6 +688,73 @@ class RunServerTests(unittest.TestCase):
         )
 
 
+class McpInstructionsTests(unittest.TestCase):
+    def test_default_instructions_include_dataset_publication_safety_rule(self) -> None:
+        instructions = load_mcp_instructions(None)
+
+        self.assertIn(
+            "Treat creating, editing, and saving a dataset as draft work",
+            instructions,
+        )
+        self.assertIn(
+            "Never publish, release, or otherwise make a dataset public",
+            instructions,
+        )
+
+    def test_custom_instructions_are_appended_to_built_in_guidance(self) -> None:
+        with TemporaryDirectory() as directory:
+            instructions_path = Path(directory) / "instructions.md"
+            instructions_path.write_text(
+                "Use the institution's preferred dataverse for new datasets.",
+                encoding="utf-8",
+            )
+
+            instructions = load_mcp_instructions(str(instructions_path))
+
+        self.assertIn(
+            "Treat creating, editing, and saving a dataset as draft work",
+            instructions,
+        )
+        self.assertTrue(
+            instructions.endswith(
+                "Use the institution's preferred dataverse for new datasets."
+            )
+        )
+
+    def test_create_mcp_server_attaches_instructions_to_fastmcp_server(self) -> None:
+        spec = {"paths": {}}
+        mcp = Mock()
+
+        with TemporaryDirectory() as directory:
+            instructions_path = Path(directory) / "instructions.md"
+            instructions_path.write_text(
+                "Ask for the collection alias when it is ambiguous.",
+                encoding="utf-8",
+            )
+            config = replace(make_config(), instructions_file=str(instructions_path))
+
+            with patch("dome.load_openapi_spec", return_value=spec):
+                with patch("dome.http_client.AsyncClient"):
+                    with patch("dome.FastMCP.from_openapi", return_value=mcp):
+                        self.assertIs(create_mcp_server(config), mcp)
+
+        self.assertIn(
+            "Never publish, release, or otherwise make a dataset public",
+            mcp.instructions,
+        )
+        self.assertIn("Ask for the collection alias when it is ambiguous.", mcp.instructions)
+
+    def test_empty_custom_instructions_file_keeps_built_in_guidance(self) -> None:
+        with TemporaryDirectory() as directory:
+            instructions_path = Path(directory) / "empty.md"
+            instructions_path.write_text("\n", encoding="utf-8")
+
+            self.assertEqual(
+                load_mcp_instructions(str(instructions_path)),
+                dome.DEFAULT_MCP_INSTRUCTIONS,
+            )
+
+
 class EntrypointTests(unittest.TestCase):
     def test_keyboard_interrupt_is_clean_at_cli_boundary(self) -> None:
         with patch("dome.main", side_effect=KeyboardInterrupt):
@@ -881,6 +950,33 @@ class ArgumentParsingTests(unittest.TestCase):
                 args = parse_args()
 
         self.assertEqual(args.openapi_patch, "./openapi-patches.json")
+
+    def test_mcp_instructions_file_environment_setting_is_read(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"MCP_INSTRUCTIONS_FILE": "./mcp-instructions.example.md"},
+            clear=False,
+        ):
+            with patch.object(sys, "argv", ["dome.py"]):
+                config = build_config(parse_args())
+
+        self.assertEqual(
+            config.instructions_file,
+            str((dome.DEFAULT_ENV_PATH.parent / "mcp-instructions.example.md").resolve()),
+        )
+
+    def test_mcp_instructions_file_cli_setting_is_read(self) -> None:
+        with patch.object(
+            sys,
+            "argv",
+            ["dome.py", "--instructions-file", "./mcp-instructions.example.md"],
+        ):
+            config = build_config(parse_args())
+
+        self.assertEqual(
+            config.instructions_file,
+            str((dome.DEFAULT_ENV_PATH.parent / "mcp-instructions.example.md").resolve()),
+        )
 
 
 class EnvironmentLoadingTests(unittest.TestCase):

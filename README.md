@@ -47,6 +47,11 @@ python dome.py \
 Add `--openapi-patch ./openapi-patches.json` when a local correction file is
 needed.
 
+Optionally add deployment-specific MCP guidance with
+`--instructions-file ./mcp-instructions.example.md`. DOME sends the built-in
+safety guidance and the contents of this file to the MCP client during
+initialization.
+
 The MCP endpoint is:
 
 ```text
@@ -82,6 +87,9 @@ MCP_LOG_DATAVERSE_REQUESTS=false
 MCP_IGNORE_SSL_ERRORS=false
 # Optional local OpenAPI correction file applied after fetching the document.
 # MCP_OPENAPI_PATCH=./openapi-patches.json
+# Optional deployment-specific MCP guidance. Built-in DOME guidance is always
+# included. See mcp-instructions.example.md.
+# MCP_INSTRUCTIONS_FILE=./mcp-instructions.example.md
 # Optional exact OpenAPI operationId filters (the generated MCP tool names).
 # INCLUDE_TOOLS=DataRetrieverAPI_retrieveMyCollectionList,DataRetrieverAPI_retrieveMyDataAsJsonString
 # EXCLUDE_TOOLS=Users_sensitiveOperation
@@ -111,6 +119,40 @@ python dome.py \
 
 If `--openapi` is omitted, the server uses `./openapi.json`. You can also pass
 an HTTP(S) URL, for example `--openapi http://127.0.0.1:8080/openapi.json`.
+
+## MCP instructions
+
+DOME includes built-in server instructions that guide an MCP client in using
+the Dataverse tools. In particular, dataset creation, editing, and saving are
+treated as draft operations: the agent should not publish or release a dataset
+unless the user explicitly asks for it or explicitly confirms publication after
+the agent suggests it.
+
+Add installation-specific guidance with a Markdown or text file:
+
+```bash
+python dome.py \
+  --openapi https://beta.dataverse.org/openapi?format=json \
+  --api-base-url https://beta.dataverse.org/api/ \
+  --instructions-file ./mcp-instructions.example.md
+```
+
+The equivalent `.env` setting is:
+
+```env
+MCP_INSTRUCTIONS_FILE=./mcp-instructions.example.md
+```
+
+Relative instruction-file paths are resolved relative to the directory
+containing `dome.py`, just like the other local configuration files. The
+example file in this repository can be copied and adapted for local policies.
+
+These are MCP initialization instructions, not a security or authorization
+boundary. MCP clients may present them to the agent as server context, but DOME
+cannot rely on instructions alone to prevent a high-impact operation. For
+stronger control, keep publication tools out of a normal profile with
+`EXCLUDE_TOOLS` or add a server-side confirmation/policy gate before forwarding
+publication requests.
 
 ## OpenAPI patches
 
@@ -191,6 +233,9 @@ MCP_TRANSPORT=streamable-http
 MCP_HOST=127.0.0.1
 MCP_PORT=8000
 MCP_PATH=/mcp
+# Optional deployment-specific MCP guidance; built-in DOME guidance is always
+# included.
+# MCP_INSTRUCTIONS_FILE=./mcp-instructions.example.md
 # Show the DOME startup banner; set false to suppress it.
 MCP_SHOW_BANNER=true
 # Show individual tool names and descriptions; set true to enable listing.

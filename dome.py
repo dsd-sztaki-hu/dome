@@ -45,6 +45,27 @@ DEFAULT_API_BASE_URL = "http://127.0.0.1:8080/api/"
 DEFAULT_API_KEY_HEADER = "X-Dataverse-key"
 DEFAULT_API_KEY_ENV = "DATAVERSE_API_TOKEN"
 DEFAULT_API_KEY_SECURITY_SCHEME = "DataverseApiKey"
+DEFAULT_MCP_INSTRUCTIONS = """
+You are using Dataverse through the DOME MCP server.
+
+Use the available tools according to their descriptions and input schemas. Do not
+put API credentials in tool arguments or disclose them in responses.
+
+Dataset safety rules:
+- Treat creating, editing, and saving a dataset as draft work.
+- Never publish, release, or otherwise make a dataset public as part of a create
+  or edit request.
+- Publish only when the user explicitly asks for publication, or after you have
+  explained that publication is the next step and the user explicitly confirms.
+- Do not infer publication permission from a general request to create, edit,
+  save, or prepare a dataset, and do not infer confirmation from an earlier
+  message.
+- Before a publication action, clearly state the effect and ask for confirmation
+  if the user's intent is not explicit.
+
+Apply the same caution to other irreversible or high-impact operations: explain
+what will happen and ask for confirmation when the user's intent is ambiguous.
+""".strip()
 DOME_LOGO = (
     "██████╗  ██████╗ ███╗   ███╗███████╗\n"
     "██╔══██╗██╔═══██╗████╗ ████║██╔════╝\n"
@@ -176,6 +197,7 @@ class ServerConfig:
     name: str
     openapi_source: str
     openapi_patch_path: str | None
+    instructions_file: str | None
     api_base_url: str
     api_key_header: str
     api_key_env: str
@@ -273,6 +295,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Path to a local OpenAPI correction file (operation overrides or "
             "JSON Patch) applied before DOME creates MCP tools."
+        ),
+    )
+    parser.add_argument(
+        "--instructions-file",
+        default=os.getenv("MCP_INSTRUCTIONS_FILE") or None,
+        help=(
+            "Optional Markdown/text file with additional instructions sent to the "
+            "MCP client during initialization."
         ),
     )
     parser.add_argument(
@@ -423,6 +453,9 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
     openapi_patch_path = normalize_openapi_patch_path(
         getattr(args, "openapi_patch", None)
     )
+    instructions_file = normalize_mcp_instructions_path(
+        getattr(args, "instructions_file", None)
+    )
 
     if not args.api_base_url:
         raise SystemExit(
@@ -439,6 +472,7 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
         name=args.name,
         openapi_source=openapi_source,
         openapi_patch_path=openapi_patch_path,
+        instructions_file=instructions_file,
         api_base_url=args.api_base_url,
         api_key_header=args.api_key_header,
         api_key_env=args.api_key_env,
@@ -539,6 +573,40 @@ def normalize_openapi_patch_path(value: str | None) -> str | None:
             f"OpenAPI patch file not found: {Path(source).expanduser().resolve()}"
         )
     return str(path)
+
+
+def normalize_mcp_instructions_path(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    source = str(value).strip()
+    if not source:
+        return None
+
+    path = resolve_openapi_path(source)
+    if path is None or not path.is_file():
+        raise SystemExit(
+            f"MCP instructions file not found: {Path(source).expanduser().resolve()}"
+        )
+    return str(path)
+
+
+def load_mcp_instructions(path: str | None) -> str:
+    """Return built-in DOME guidance with optional deployment-specific additions."""
+
+    if path is None:
+        return DEFAULT_MCP_INSTRUCTIONS
+
+    try:
+        additional_instructions = Path(path).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise SystemExit(
+            f"Could not read MCP instructions file {path}: {exc}"
+        ) from exc
+
+    if not additional_instructions:
+        return DEFAULT_MCP_INSTRUCTIONS
+    return f"{DEFAULT_MCP_INSTRUCTIONS}\n\n{additional_instructions}"
 
 
 def resolve_openapi_path(source: str) -> Path | None:
@@ -1254,11 +1322,13 @@ def create_mcp_server(config: ServerConfig) -> FastMCP:
         timeout=config.timeout,
         verify=not config.ignore_ssl_errors,
     )
-    return FastMCP.from_openapi(
+    mcp = FastMCP.from_openapi(
         openapi_spec=openapi_spec,
         client=api_client,
         name=config.name,
     )
+    mcp.instructions = load_mcp_instructions(config.instructions_file)
+    return mcp
 
 
 def print_served_tools(config: ServerConfig, mcp: FastMCP) -> None:
@@ -1316,6 +1386,14 @@ def print_dome_banner(config: ServerConfig) -> None:
     runtime.add_row("Endpoint", endpoint)
     runtime.add_row("OpenAPI", config.openapi_source)
     runtime.add_row("OpenAPI patch", config.openapi_patch_path or "none")
+    runtime.add_row(
+        "MCP instructions",
+        (
+            "built-in"
+            if config.instructions_file is None
+            else f"built-in + {config.instructions_file}"
+        ),
+    )
     runtime.add_row("Tool details", "enabled" if config.show_tools else "suppressed")
     runtime.add_row(
         "TLS verification",
