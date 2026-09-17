@@ -152,6 +152,8 @@ class DataverseApiKeyAuth(HttpAuth):
         )
         if api_key:
             request.headers[self.config.api_key_header] = api_key
+            if self.config.log_api_key_usage:
+                log_api_key_usage(self.config, request)
         elif self.config.api_key_mode != "none" and requires_api_key:
             raise RuntimeError(api_key_missing_message(self.config))
         yield request
@@ -335,6 +337,7 @@ def load_env_file(path: Path) -> None:
     if not path.exists():
         return
 
+    process_environment_keys = set(os.environ)
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -346,7 +349,7 @@ def load_env_file(path: Path) -> None:
 
         key, value = line.split("=", 1)
         key = key.strip()
-        if not key or key in os.environ:
+        if not key or key in process_environment_keys:
             continue
 
         os.environ[key] = unquote_env_value(value.strip())
@@ -645,6 +648,15 @@ def case_insensitive_header(headers, name: str) -> str | None:
         if str(key).lower() == wanted and value:
             return value
     return None
+
+
+def log_api_key_usage(config: ServerConfig, request: HttpRequest) -> None:
+    logger.info(
+        "[%s] Dataverse API key forwarded for %s %s",
+        config.name,
+        request.method.upper(),
+        request.url.path,
+    )
 
 
 def api_key_missing_message(config: ServerConfig) -> str:

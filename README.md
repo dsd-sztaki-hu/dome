@@ -164,6 +164,12 @@ For `request-header` and `env`, the server only fails locally when the matched
 OpenAPI operation requires the `DataverseApiKey` security scheme and no key is
 available. Public operations are called without `X-Dataverse-key`.
 
+For authentication diagnostics, pass `--log-api-key-usage` or set
+`MCP_LOG_API_KEY_USAGE=true`. DOME then writes one line to stderr whenever it
+attaches a Dataverse API key to an upstream request. The log contains only the
+HTTP method and path; the token itself is never logged. Use
+`--no-log-api-key-usage` to override the environment setting.
+
 Recommended deployment profiles:
 
 Local stdio installation:

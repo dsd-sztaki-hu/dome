@@ -63,6 +63,35 @@ def apply_auth(auth: DataverseApiKeyAuth, request: httpx.Request) -> httpx.Reque
 
 
 class DataverseApiKeyAuthTests(unittest.TestCase):
+    def test_authenticated_operation_can_log_key_forwarding_without_secret(self) -> None:
+        operation_auth = OperationAuthRules(
+            base_path="/api",
+            rules=(
+                OperationAuthRule(
+                    method="get",
+                    path_template="/private",
+                    requires_api_key=True,
+                ),
+            ),
+        )
+        auth = DataverseApiKeyAuth(
+            replace(make_config(), log_api_key_usage=True), operation_auth
+        )
+        request = httpx.Request("GET", "https://beta.dataverse.org/api/private")
+
+        with patch.dict(os.environ, {"DATAVERSE_API_TOKEN": "secret"}, clear=False):
+            with self.assertLogs("fastmcp.dome", level="INFO") as logs:
+                authenticated_request = apply_auth(auth, request)
+
+        self.assertEqual(
+            authenticated_request.headers["X-Dataverse-key"],
+            "secret",
+        )
+        audit_log = "\n".join(logs.output)
+        self.assertIn("GET /api/private", audit_log)
+        self.assertIn("Dataverse API key forwarded", audit_log)
+        self.assertNotIn("secret", audit_log)
+
     def test_authenticated_operation_receives_configured_api_key(self) -> None:
         operation_auth = OperationAuthRules(
             base_path="/api",
@@ -96,7 +125,9 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
                 ),
             ),
         )
-        auth = DataverseApiKeyAuth(make_config(), operation_auth)
+        auth = DataverseApiKeyAuth(
+            replace(make_config(), log_api_key_usage=True), operation_auth
+        )
         request = httpx.Request(
             "GET",
             "https://beta.dataverse.org/api/public",
@@ -104,7 +135,8 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
         )
 
         with patch.dict(os.environ, {"DATAVERSE_API_TOKEN": "secret"}, clear=False):
-            authenticated_request = apply_auth(auth, request)
+            with self.assertNoLogs("fastmcp.dome", level="INFO"):
+                authenticated_request = apply_auth(auth, request)
 
         self.assertNotIn("X-Dataverse-key", authenticated_request.headers)
 
