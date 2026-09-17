@@ -7,7 +7,8 @@ MCP clients.
 
 The Dataverse OpenAPI specification defines more than 500 endpoints, but many are administrative or
 otherwise unnecessary for a given client or use case. DOME lets you control which parts of the API
-are exposed as MCP tools by filtering OpenAPI operations by their functional groups.
+are exposed as MCP tools by filtering OpenAPI operations by their functional groups or by selecting
+individual operation names.
 
 For example, a typical data steward may need access to search, dataset creation, metadata editing,
 and file upload, while having no need for user management or system settings. DOME can expose only
@@ -50,7 +51,7 @@ http://127.0.0.1:8000/mcp
 ```
 
 At startup, DOME writes the served tool count to stderr, including the active
-include/exclude tag filters. Individual tool names and descriptions are hidden
+include/exclude filters. Individual tool names and descriptions are hidden
 by default. Add `--show-tools` to the command to enable the full listing.
 
 DOME also displays a branded startup banner by default. Use `--no-show-banner`
@@ -75,6 +76,9 @@ MCP_SHOW_TOOLS=false
 MCP_LOG_API_KEY_USAGE=false
 # Disable TLS certificate verification; use only on a trusted network.
 MCP_IGNORE_SSL_ERRORS=false
+# Optional exact OpenAPI operationId filters (the generated MCP tool names).
+# INCLUDE_TOOLS=DataRetrieverAPI_retrieveMyCollectionList,DataRetrieverAPI_retrieveMyDataAsJsonString
+# EXCLUDE_TOOLS=Users_sensitiveOperation
 ```
 
 Then run:
@@ -126,6 +130,8 @@ MCP_LOG_API_KEY_USAGE=false
 MCP_IGNORE_SSL_ERRORS=false
 INCLUDE_TAGS=Datasets,Files
 # EXCLUDE_TAGS=Admin
+# INCLUDE_TOOLS=DataRetrieverAPI_retrieveMyCollectionList,DataRetrieverAPI_retrieveMyDataAsJsonString
+# EXCLUDE_TOOLS=Users_sensitiveOperation
 ```
 
 The server automatically loads a `.env` file placed next to `dome.py` before
@@ -197,10 +203,13 @@ certificate verification for both OpenAPI retrieval and upstream Dataverse
 requests and should only be used on a trusted network. DOME prints a warning
 when this mode is active; `--no-ignore-ssl-errors` restores secure verification.
 
-## Tag Filtering
+## Tag and Tool Filtering
 
-The server can filter the OpenAPI document before it creates MCP tools. This is
-useful when the full Dataverse API would expose too many tools to a client.
+The server filters the OpenAPI document before it creates MCP tools. Tag filters
+select functional groups, while tool filters select individual OpenAPI
+`operationId` values. In the generated Dataverse specification, the
+`operationId` is also the MCP tool name, for example
+`DataRetrieverAPI_retrieveMyCollectionList`.
 
 Expose only selected resource groups:
 
@@ -228,6 +237,38 @@ Environment variable equivalents:
 ```env
 INCLUDE_TAGS=Datasets,Files
 EXCLUDE_TAGS=Admin
+```
+
+To expose only two operations from the `Users` group, select the exact tool
+names directly:
+
+```bash
+python dome.py \
+  --include-tool DataRetrieverAPI_retrieveMyCollectionList \
+  --include-tool DataRetrieverAPI_retrieveMyDataAsJsonString \
+  --api-key-mode request-header \
+  --transport streamable-http
+```
+
+The equivalent `.env` settings are:
+
+```env
+INCLUDE_TOOLS=DataRetrieverAPI_retrieveMyCollectionList,DataRetrieverAPI_retrieveMyDataAsJsonString
+```
+
+`INCLUDE_TAGS` and `INCLUDE_TOOLS` are independent positive selectors. If both
+are set, DOME exposes the union: operations matching an included tag plus the
+individually included operations. This lets you expose selected `Users`
+operations alongside complete groups such as `Datasets` without exposing all
+`Users` operations. `EXCLUDE_TAGS` and `EXCLUDE_TOOLS` are applied afterward;
+any matching exclude tag or tool removes the operation.
+
+For example, this exposes all `Datasets` operations plus the two selected
+`Users` operations:
+
+```env
+INCLUDE_TAGS=Datasets
+INCLUDE_TOOLS=DataRetrieverAPI_retrieveMyCollectionList,DataRetrieverAPI_retrieveMyDataAsJsonString
 ```
 
 Suggested profiles:
@@ -285,7 +326,9 @@ EXCLUDE_TAGS=Admin,Users,Roles,Notifications,Workflows,External Tools,Dataverse 
 ```
 
 `--include-tag` and `--exclude-tag` can be repeated. If the filters remove every
-operation, the server exits with a clear error.
+operation, the server exits with a clear error. `--include-tool` and
+`--exclude-tool` can also be repeated; `INCLUDE_TOOLS` and `EXCLUDE_TOOLS` take
+comma-separated lists.
 
 ## MCP Client Configuration
 
@@ -313,6 +356,8 @@ Add this to `~/.codex/config.toml`:
 [mcp_servers.dataverse]
 url = "http://127.0.0.1:8000/mcp"
 env_http_headers = { "X-Dataverse-key" = "DATAVERSE_API_TOKEN" }
+# Optional: automatically approve all tools from this MCP server.
+# default_tools_approval_mode = "approve"
 ```
 
 Then set the token before starting Codex:
@@ -320,6 +365,11 @@ Then set the token before starting Codex:
 ```bash
 export DATAVERSE_API_TOKEN="your-token"
 ```
+
+`default_tools_approval_mode = "approve"` is optional and suppresses Codex's
+per-tool approval prompts for this server. It affects Codex's local approval
+behavior only; it does not change which tools DOME exposes. Use DOME's
+`INCLUDE_TOOLS` and `EXCLUDE_TOOLS` settings to restrict the tool surface.
 
 ### Claude Code
 

@@ -101,6 +101,8 @@ class ServerConfig:
     timeout: float
     include_tags: tuple[str, ...]
     exclude_tags: tuple[str, ...]
+    include_tools: tuple[str, ...]
+    exclude_tools: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -279,6 +281,24 @@ def parse_args() -> argparse.Namespace:
             "Alternatively set EXCLUDE_TAGS as a comma-separated list."
         ),
     )
+    parser.add_argument(
+        "--include-tool",
+        action="append",
+        default=[],
+        help=(
+            "Only expose OpenAPI operations with this operationId. Can be repeated. "
+            "Alternatively set INCLUDE_TOOLS as a comma-separated list."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-tool",
+        action="append",
+        default=[],
+        help=(
+            "Hide OpenAPI operations with this operationId. Can be repeated. "
+            "Alternatively set EXCLUDE_TOOLS as a comma-separated list."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -330,6 +350,8 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
         timeout=args.timeout,
         include_tags=tuple(combine_list_options(args.include_tag, "INCLUDE_TAGS")),
         exclude_tags=tuple(combine_list_options(args.exclude_tag, "EXCLUDE_TAGS")),
+        include_tools=tuple(combine_list_options(args.include_tool, "INCLUDE_TOOLS")),
+        exclude_tools=tuple(combine_list_options(args.exclude_tool, "EXCLUDE_TOOLS")),
     )
 
 
@@ -445,7 +467,9 @@ def fetch_openapi_spec(url: str, timeout: float, verify_ssl: bool = True) -> dic
 def filter_openapi_by_tags(spec: dict, config: ServerConfig) -> dict:
     include_tags = normalized_tag_set(config.include_tags)
     exclude_tags = normalized_tag_set(config.exclude_tags)
-    if not include_tags and not exclude_tags:
+    include_tools = normalized_tool_set(config.include_tools)
+    exclude_tools = normalized_tool_set(config.exclude_tools)
+    if not include_tags and not exclude_tags and not include_tools and not exclude_tools:
         return spec
 
     filtered = dict(spec)
@@ -465,7 +489,13 @@ def filter_openapi_by_tags(spec: dict, config: ServerConfig) -> dict:
             if method.lower() not in HTTP_METHODS:
                 continue
             operation_count += 1
-            if operation_matches_tag_filter(operation, include_tags, exclude_tags):
+            if operation_matches_filters(
+                operation,
+                include_tags,
+                exclude_tags,
+                include_tools,
+                exclude_tools,
+            ):
                 filtered_path_item[method] = operation
                 kept_count += 1
         if has_operation(filtered_path_item):
@@ -473,8 +503,11 @@ def filter_openapi_by_tags(spec: dict, config: ServerConfig) -> dict:
 
     if operation_count and kept_count == 0:
         raise SystemExit(
-            "Tag filters removed every OpenAPI operation. "
-            f"include={list(config.include_tags)} exclude={list(config.exclude_tags)}"
+            "OpenAPI filters removed every operation. "
+            f"include-tags={list(config.include_tags)} "
+            f"exclude-tags={list(config.exclude_tags)} "
+            f"include-tools={list(config.include_tools)} "
+            f"exclude-tools={list(config.exclude_tools)}"
         )
 
     filtered["paths"] = filtered_paths
@@ -488,12 +521,32 @@ def filter_openapi_by_tags(spec: dict, config: ServerConfig) -> dict:
 
 
 def operation_matches_tag_filter(operation: object, include_tags: set[str], exclude_tags: set[str]) -> bool:
+    return operation_matches_filters(operation, include_tags, exclude_tags, set(), set())
+
+
+def operation_matches_filters(
+    operation: object,
+    include_tags: set[str],
+    exclude_tags: set[str],
+    include_tools: set[str],
+    exclude_tools: set[str],
+) -> bool:
     if not isinstance(operation, dict):
         return False
+
     tags = normalized_tag_set(operation.get("tags") or [])
-    if include_tags and not tags.intersection(include_tags):
-        return False
+    tool_name = normalize_tool_name(operation.get("operationId"))
+
     if exclude_tags and tags.intersection(exclude_tags):
+        return False
+    if exclude_tools and tool_name in exclude_tools:
+        return False
+
+    include_match = (
+        (bool(include_tags) and bool(tags.intersection(include_tags)))
+        or (bool(include_tools) and tool_name in include_tools)
+    )
+    if (include_tags or include_tools) and not include_match:
         return False
     return True
 
@@ -518,6 +571,18 @@ def normalized_tag_set(values) -> set[str]:
 
 
 def normalize_tag(value) -> str:
+    return str(value).strip().casefold() if value is not None else ""
+
+
+def normalized_tool_set(values) -> set[str]:
+    return {
+        normalize_tool_name(value)
+        for value in values
+        if normalize_tool_name(value)
+    }
+
+
+def normalize_tool_name(value) -> str:
     return str(value).strip().casefold() if value is not None else ""
 
 
@@ -724,6 +789,14 @@ def print_served_tools(config: ServerConfig, mcp: FastMCP) -> None:
             "Tag filters: "
             f"include={list(config.include_tags) or '*'} "
             f"exclude={list(config.exclude_tags) or '[]'}",
+            file=sys.stderr,
+            flush=True,
+        )
+    if config.include_tools or config.exclude_tools:
+        print(
+            "Tool filters: "
+            f"include={list(config.include_tools) or '*'} "
+            f"exclude={list(config.exclude_tools) or '[]'}",
             file=sys.stderr,
             flush=True,
         )

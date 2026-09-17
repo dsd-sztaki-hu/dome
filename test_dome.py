@@ -19,8 +19,10 @@ from dome import (
     OperationAuthRule,
     OperationAuthRules,
     ServerConfig,
+    build_config,
     create_mcp_server,
     fetch_openapi_spec,
+    filter_openapi_by_tags,
     load_env_file,
     parse_args,
     print_dome_banner,
@@ -47,6 +49,8 @@ def make_config() -> ServerConfig:
         timeout=30,
         include_tags=(),
         exclude_tags=(),
+        include_tools=(),
+        exclude_tools=(),
         ignore_ssl_errors=False,
         log_api_key_usage=False,
         show_tools=True,
@@ -139,6 +143,240 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
                 authenticated_request = apply_auth(auth, request)
 
         self.assertNotIn("X-Dataverse-key", authenticated_request.headers)
+
+
+class OpenApiFilterTests(unittest.TestCase):
+    def test_include_tags_work_without_exclude_tags(self) -> None:
+        spec = {
+            "paths": {
+                "/datasets": {
+                    "get": {
+                        "operationId": "Datasets_list",
+                        "tags": ["Datasets"],
+                    }
+                },
+                "/users": {
+                    "get": {
+                        "operationId": "Users_list",
+                        "tags": ["Users"],
+                    }
+                },
+            }
+        }
+
+        filtered = filter_openapi_by_tags(
+            spec,
+            replace(make_config(), include_tags=("Datasets",)),
+        )
+
+        self.assertEqual(set(filtered["paths"]), {"/datasets"})
+
+    def test_exclude_tags_work_without_include_tags(self) -> None:
+        spec = {
+            "paths": {
+                "/datasets": {
+                    "get": {
+                        "operationId": "Datasets_list",
+                        "tags": ["Datasets"],
+                    }
+                },
+                "/users": {
+                    "get": {
+                        "operationId": "Users_list",
+                        "tags": ["Users"],
+                    }
+                },
+            }
+        }
+
+        filtered = filter_openapi_by_tags(
+            spec,
+            replace(make_config(), exclude_tags=("Users",)),
+        )
+
+        self.assertEqual(set(filtered["paths"]), {"/datasets"})
+
+    def test_include_and_exclude_tags_can_be_combined(self) -> None:
+        spec = {
+            "paths": {
+                "/datasets": {
+                    "get": {
+                        "operationId": "Datasets_list",
+                        "tags": ["Datasets"],
+                    }
+                },
+                "/users": {
+                    "get": {
+                        "operationId": "Users_list",
+                        "tags": ["Users"],
+                    }
+                },
+            }
+        }
+
+        filtered = filter_openapi_by_tags(
+            spec,
+            replace(
+                make_config(),
+                include_tags=("Datasets", "Users"),
+                exclude_tags=("Users",),
+            ),
+        )
+
+        self.assertEqual(set(filtered["paths"]), {"/datasets"})
+
+    def test_include_tools_extend_included_tag_operations(self) -> None:
+        spec = {
+            "paths": {
+                "/datasets": {
+                    "get": {
+                        "operationId": "Datasets_list",
+                        "tags": ["Datasets"],
+                    }
+                },
+                "/mydata/retrieve": {
+                    "get": {
+                        "operationId": "DataRetrieverAPI_retrieveMyDataAsJsonString",
+                        "tags": ["Users"],
+                    }
+                },
+                "/users/other": {
+                    "get": {
+                        "operationId": "Users_otherOperation",
+                        "tags": ["Users"],
+                    }
+                },
+            }
+        }
+        config = replace(
+            make_config(),
+            include_tags=("Datasets",),
+            include_tools=("DataRetrieverAPI_retrieveMyDataAsJsonString",),
+        )
+
+        filtered = filter_openapi_by_tags(spec, config)
+
+        operation_ids = {
+            operation["operationId"]
+            for path_item in filtered["paths"].values()
+            for operation in path_item.values()
+            if isinstance(operation, dict) and "operationId" in operation
+        }
+        self.assertEqual(
+            operation_ids,
+            {
+                "Datasets_list",
+                "DataRetrieverAPI_retrieveMyDataAsJsonString",
+            },
+        )
+
+    def test_include_tools_can_select_specific_operations(self) -> None:
+        spec = {
+            "tags": [{"name": "Users"}, {"name": "Datasets"}],
+            "paths": {
+                "/mydata/retrieve": {
+                    "get": {
+                        "operationId": "DataRetrieverAPI_retrieveMyDataAsJsonString",
+                        "tags": ["Users"],
+                    }
+                },
+                "/mydata/retrieve/collectionList": {
+                    "get": {
+                        "operationId": "DataRetrieverAPI_retrieveMyCollectionList",
+                        "tags": ["Users"],
+                    }
+                },
+                "/users/other": {
+                    "get": {
+                        "operationId": "Users_otherOperation",
+                        "tags": ["Users"],
+                    }
+                },
+                "/datasets": {
+                    "get": {
+                        "operationId": "Datasets_list",
+                        "tags": ["Datasets"],
+                    }
+                },
+            },
+        }
+        config = replace(
+            make_config(),
+            include_tools=(
+                "DataRetrieverAPI_retrieveMyCollectionList",
+                "DataRetrieverAPI_retrieveMyDataAsJsonString",
+            ),
+        )
+
+        filtered = filter_openapi_by_tags(spec, config)
+
+        operation_ids = {
+            operation["operationId"]
+            for path_item in filtered["paths"].values()
+            for operation in path_item.values()
+            if isinstance(operation, dict) and "operationId" in operation
+        }
+        self.assertEqual(
+            operation_ids,
+            {
+                "DataRetrieverAPI_retrieveMyCollectionList",
+                "DataRetrieverAPI_retrieveMyDataAsJsonString",
+            },
+        )
+        self.assertEqual(filtered["tags"], [{"name": "Users"}])
+
+    def test_exclude_tool_removes_one_operation_from_an_included_tag(self) -> None:
+        spec = {
+            "paths": {
+                "/users/one": {
+                    "get": {
+                        "operationId": "Users_oneOperation",
+                        "tags": ["Users"],
+                    }
+                },
+                "/users/two": {
+                    "get": {
+                        "operationId": "Users_twoOperation",
+                        "tags": ["Users"],
+                    }
+                },
+            }
+        }
+        config = replace(
+            make_config(),
+            include_tags=("Users",),
+            exclude_tools=("Users_twoOperation",),
+        )
+
+        filtered = filter_openapi_by_tags(spec, config)
+
+        self.assertIn("/users/one", filtered["paths"])
+        self.assertNotIn("/users/two", filtered["paths"])
+
+    def test_exclude_tools_work_without_include_filters(self) -> None:
+        spec = {
+            "paths": {
+                "/users/one": {
+                    "get": {
+                        "operationId": "Users_oneOperation",
+                        "tags": ["Users"],
+                    }
+                },
+                "/users/two": {
+                    "get": {
+                        "operationId": "Users_twoOperation",
+                        "tags": ["Users"],
+                    }
+                },
+            }
+        }
+
+        filtered = filter_openapi_by_tags(
+            spec,
+            replace(make_config(), exclude_tools=("Users_twoOperation",)),
+        )
+
+        self.assertEqual(set(filtered["paths"]), {"/users/one"})
 
 
 class RunServerTests(unittest.TestCase):
@@ -250,6 +488,36 @@ class ToolListingTests(unittest.TestCase):
 
 
 class ArgumentParsingTests(unittest.TestCase):
+    def test_tool_filters_accept_cli_and_environment_values(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "INCLUDE_TOOLS": "env-tool,shared-tool",
+                "EXCLUDE_TOOLS": "env-hidden",
+            },
+            clear=False,
+        ):
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "dome.py",
+                    "--include-tool",
+                    "cli-tool",
+                    "--exclude-tool",
+                    "cli-hidden",
+                    "--api-key-mode",
+                    "none",
+                ],
+            ):
+                config = build_config(parse_args())
+
+        self.assertEqual(
+            config.include_tools,
+            ("cli-tool", "env-tool", "shared-tool"),
+        )
+        self.assertEqual(config.exclude_tools, ("cli-hidden", "env-hidden"))
+
     def test_mcp_ignore_ssl_errors_environment_setting_is_read(self) -> None:
         with patch.dict(os.environ, {"MCP_IGNORE_SSL_ERRORS": "true"}, clear=False):
             with patch.object(sys, "argv", ["dome.py"]):
