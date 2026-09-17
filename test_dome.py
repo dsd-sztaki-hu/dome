@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import dome
 import fastmcp
 import httpx
+from rich.logging import RichHandler
 
 from dome import (
     DataverseApiKeyAuth,
@@ -178,6 +179,8 @@ class DataverseRequestLoggingTests(unittest.TestCase):
     def test_handler_uses_fastmcp_style_format_without_newlines(self) -> None:
         output = io.StringIO()
         handler = DataverseRequestLogHandler(output)
+        self.assertIsInstance(handler, RichHandler)
+        self.assertTrue(handler.console.soft_wrap)
         record = logging.LogRecord(
             name="fastmcp.dome",
             level=logging.INFO,

@@ -10,6 +10,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -26,6 +27,7 @@ from fastmcp.server.dependencies import get_http_headers
 from fastmcp.utilities.logging import get_logger
 from rich.align import Align
 from rich.console import Console, Group
+from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -82,17 +84,77 @@ HttpRequest = http_client.Request
 HttpAuth = http_client.Auth
 
 
-class DataverseRequestLogHandler(logging.StreamHandler):
+class DataverseRequestLogHandler(RichHandler):
     """Render request diagnostics like FastMCP without terminal line folding."""
 
     def __init__(self, stream=None) -> None:
-        super().__init__(stream if stream is not None else sys.stderr)
-        self.setFormatter(
-            logging.Formatter(
-                "[%(asctime)s] %(levelname)-8s %(message)s %(filename)s:%(lineno)d",
-                datefmt="%x %X",
+        super().__init__(
+            console=Console(
+                file=stream if stream is not None else sys.stderr,
+                soft_wrap=True,
             )
         )
+        self.setFormatter(logging.Formatter("%(message)s"))
+
+    def render(self, *, record, traceback, message_renderable):
+        if traceback is not None:
+            return super().render(
+                record=record,
+                traceback=traceback,
+                message_renderable=message_renderable,
+            )
+
+        path = Path(record.pathname).name
+        level = self.get_level_text(record)
+        time_format = None if self.formatter is None else self.formatter.datefmt
+        log_time = datetime.fromtimestamp(record.created)
+        line = Text()
+
+        if self._log_render.show_time:
+            time_format = time_format or self._log_render.time_format
+            if callable(time_format):
+                log_time_display = time_format(log_time)
+            else:
+                log_time_display = Text(log_time.strftime(time_format))
+            log_time_display.stylize("log.time")
+            if (
+                log_time_display == self._log_render._last_time
+                and self._log_render.omit_repeated_times
+            ):
+                line.append(" " * len(log_time_display))
+            else:
+                line.append_text(log_time_display)
+                self._log_render._last_time = log_time_display
+            line.append(" ")
+
+        if self._log_render.show_level:
+            line.append_text(level)
+            line.append(" ")
+
+        line.append_text(message_renderable)
+
+        if self._log_render.show_path and path:
+            path_text = Text()
+            link_path = record.pathname if self.enable_link_path else None
+            path_text.append(
+                path,
+                style=f"link file://{link_path}" if link_path else "log.path",
+            )
+            if record.lineno:
+                path_text.append(":", style="log.path")
+                path_text.append(
+                    str(record.lineno),
+                    style=(
+                        f"link file://{link_path}#{record.lineno}"
+                        if link_path
+                        else "log.path"
+                    ),
+                )
+            line.append(" ")
+            line.append_text(path_text)
+
+        line.no_wrap = True
+        return line
 
 
 @dataclass(frozen=True)
@@ -743,18 +805,25 @@ def log_dataverse_request(
 ) -> None:
     logger.info(
         "[%s] Dataverse request %s %s (auth=%s)",
-        config.name,
+        single_line_text(config.name),
         request.method.upper(),
-        request.url.path,
+        single_line_text(request.url.path),
         "used" if authenticated else "not-used",
     )
 
 
 def configure_dataverse_request_logging() -> None:
-    if any(isinstance(handler, DataverseRequestLogHandler) for handler in logger.handlers):
+    if any(
+        isinstance(handler, DataverseRequestLogHandler)
+        for handler in logger.handlers
+    ):
         return
     logger.propagate = False
     logger.addHandler(DataverseRequestLogHandler())
+
+
+def single_line_text(value: object) -> str:
+    return " ".join(str(value).splitlines())
 
 
 def api_key_missing_message(config: ServerConfig) -> str:
