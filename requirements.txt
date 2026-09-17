@@ -1,5 +1,5 @@
 # ************************************************************************************************
-# Copyright (C) 2025-2026 SZTAKI, Department of Distributed Systems ([https://dsd.sztaki.hu](https://dsd.sztaki.hu)).
+# Copyright (C) 2025-2026 SZTAKI, Department of Distributed Systems https://dsd.sztaki.hu.
 #
 # SPDX-License-Identifier: Apache-2.0
 # ************************************************************************************************

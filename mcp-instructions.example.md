@@ -1,8 +1,3 @@
-<!-- ************************************************************************************************
-Copyright (C) 2025-2026 SZTAKI, Department of Distributed Systems ([https://dsd.sztaki.hu](https://dsd.sztaki.hu)).
-
-SPDX-License-Identifier: Apache-2.0
-************************************************************************************************ -->
 # Example deployment-specific DOME instructions
 
 These instructions are added to DOME's built-in guidance and are sent to the
