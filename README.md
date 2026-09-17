@@ -217,12 +217,47 @@ media type's schema without JSON Pointer escaping. Multiple operation targets
 and replacements can be kept in the same file. DOME exits with a clear error if
 the file, operationId, or replacement target is invalid.
 
+A correction file can also add operations that are missing from the primary
+OpenAPI document. Add a `merge` section to the same JSON file:
+
+```json
+{
+  "merge": [
+    {
+      "source": "unexposed-apis.json",
+      "operations": "unique"
+    }
+  ],
+  "operations": {
+    "Dataverses_validateDatasetJson": {
+      "replace": {
+        "requestBody.content.application/json.schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}
+```
+
+Each merge source can be an HTTP(S) URL or a local OpenAPI JSON file. Relative
+local source paths are resolved relative to the correction file. DOME applies
+merge entries before operation replacements and RFC 6902 patches. Currently,
+`"operations": "unique"` is the supported merge mode: a source operation is
+added only when neither its HTTP method/path nor its `operationId` exists in the
+already loaded document. Existing operations are never replaced, even when the
+two documents describe them differently. Missing component definitions and
+tags used by newly added operations are copied when their names do not already
+exist; definitions in the primary document win on name collisions.
+
+Multiple merge sources are supported and are processed in the order listed.
+
 This repository includes [openapi-patches-dv6.12.json](./openapi-patches-dv6.12.json), a
-ready-to-use correction profile for the supplied Dataverse 6.12 OpenAPI
-document. It fixes source-confirmed JSON object/array, boolean, and integer
-request bodies, removes unused GET/DELETE request bodies, and keeps the
-standard `Dataverses_createDataset` route on `application/json`. Enable it with
-`--openapi-patch ./openapi-patches-dv6.12.json` or
+ready-to-use correction and extension profile for the supplied Dataverse 6.12
+OpenAPI document.
+
+Enable it with `--openapi-patch ./openapi-patches-dv6.12.json` or
 `MCP_OPENAPI_PATCH=./openapi-patches-dv6.12.json`. The profile deliberately leaves
 raw text, XML, multipart, and otherwise ambiguous wildcard bodies unchanged.
 

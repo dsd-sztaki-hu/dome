@@ -5,6 +5,7 @@
 # ************************************************************************************************
 import asyncio
 import io
+import json
 import logging
 import os
 import re
@@ -611,6 +612,231 @@ class OpenApiPatchTests(unittest.TestCase):
             patched = apply_openapi_patch_file(spec, str(patch_path))
 
         self.assertTrue(patched["x-dome"]["enabled"])
+
+    def test_merge_adds_only_unique_operations_and_missing_dependencies(self) -> None:
+        base_spec = {
+            "openapi": "3.1.0",
+            "paths": {
+                "/shared": {
+                    "get": {
+                        "operationId": "Shared_get",
+                        "summary": "Base operation",
+                    }
+                },
+                "/same-id": {
+                    "get": {
+                        "operationId": "Existing_get",
+                        "summary": "Base operation with existing id",
+                    }
+                },
+            },
+            "components": {
+                "schemas": {
+                    "Collision": {"type": "string"},
+                }
+            },
+            "tags": [{"name": "Existing"}],
+        }
+        source_spec = {
+            "openapi": "3.1.0",
+            "paths": {
+                "/shared": {
+                    "get": {
+                        "operationId": "Shared_get",
+                        "summary": "Source operation must not replace base",
+                    },
+                    "post": {
+                        "operationId": "RepoOnly_post",
+                        "tags": ["Repository-only"],
+                        "requestBody": {
+                            "$ref": "#/components/requestBodies/RepoBody"
+                        },
+                    },
+                },
+                "/same-id": {
+                    "post": {
+                        "operationId": "Existing_get",
+                        "summary": "Source operation has an existing operationId",
+                    }
+                },
+                "/repo-only": {
+                    "delete": {
+                        "operationId": "RepoOnly_delete",
+                        "responses": {
+                            "200": {
+                                "$ref": "#/components/responses/RepoResponse"
+                            }
+                        },
+                    }
+                },
+            },
+            "components": {
+                "requestBodies": {
+                    "RepoBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RepoPayload"
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "RepoResponse": {"description": "Repository response"}
+                },
+                "schemas": {
+                    "RepoPayload": {"type": "object"},
+                    "Collision": {"type": "object"},
+                },
+            },
+            "tags": [
+                {"name": "Repository-only", "description": "Added by the merge"}
+            ],
+            "security": [{"DataverseApiKey": []}],
+        }
+        loaded_sources = []
+
+        def source_loader(source: str) -> dict:
+            loaded_sources.append(source)
+            return source_spec
+
+        patched = apply_openapi_patches(
+            base_spec,
+            {
+                "merge": [
+                    {
+                        "source": "repository-openapi.json",
+                        "operations": "unique",
+                    }
+                ]
+            },
+            source_loader=source_loader,
+        )
+
+        self.assertEqual(loaded_sources, ["repository-openapi.json"])
+        self.assertEqual(
+            patched["paths"]["/shared"]["get"]["summary"], "Base operation"
+        )
+        self.assertIn("post", patched["paths"]["/shared"])
+        self.assertIn("/same-id", patched["paths"])
+        self.assertNotIn("post", patched["paths"]["/same-id"])
+        self.assertIn("/repo-only", patched["paths"])
+        self.assertEqual(
+            patched["paths"]["/shared"]["post"]["security"],
+            [{"DataverseApiKey": []}],
+        )
+        self.assertEqual(
+            patched["components"]["schemas"]["Collision"], {"type": "string"}
+        )
+        self.assertIn("RepoBody", patched["components"]["requestBodies"])
+        self.assertIn("RepoResponse", patched["components"]["responses"])
+        self.assertIn("RepoPayload", patched["components"]["schemas"])
+        self.assertIn(
+            {"name": "Repository-only", "description": "Added by the merge"},
+            patched["tags"],
+        )
+
+    def test_patch_file_can_merge_from_a_relative_openapi_source(self) -> None:
+        spec = {"paths": {}}
+        source_spec = {
+            "openapi": "3.1.0",
+            "paths": {
+                "/from-source": {
+                    "get": {"operationId": "Source_get"},
+                }
+            },
+        }
+
+        with TemporaryDirectory() as directory:
+            patch_directory = Path(directory) / "profiles"
+            patch_directory.mkdir()
+            source_path = patch_directory / "source.json"
+            source_path.write_text(json.dumps(source_spec), encoding="utf-8")
+            patch_path = patch_directory / "patch.json"
+            patch_path.write_text(
+                json.dumps({"merge": [{"source": "source.json"}]}),
+                encoding="utf-8",
+            )
+
+            patched = apply_openapi_patch_file(spec, str(patch_path))
+
+        self.assertIn("/from-source", patched["paths"])
+        self.assertEqual(
+            patched["paths"]["/from-source"]["get"]["operationId"], "Source_get"
+        )
+
+    def test_patch_file_passes_timeout_and_tls_settings_to_remote_merge_source(self) -> None:
+        spec = {"paths": {}}
+        source_spec = {
+            "openapi": "3.1.0",
+            "paths": {
+                "/from-remote-source": {
+                    "get": {"operationId": "RemoteSource_get"},
+                }
+            },
+        }
+
+        with TemporaryDirectory() as directory:
+            patch_path = Path(directory) / "patch.json"
+            patch_path.write_text(
+                json.dumps(
+                    {
+                        "merge": [
+                            {
+                                "source": "https://example.test/openapi.json",
+                                "operations": "unique",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("dome.load_openapi_spec", return_value=source_spec) as loader:
+                patched = apply_openapi_patch_file(
+                    spec,
+                    str(patch_path),
+                    timeout=12.5,
+                    verify_ssl=False,
+                )
+
+        self.assertIn("/from-remote-source", patched["paths"])
+        loader.assert_called_once_with(
+            "https://example.test/openapi.json",
+            12.5,
+            verify_ssl=False,
+        )
+
+    def test_merge_runs_before_operation_overrides_in_one_patch_document(self) -> None:
+        source_spec = {
+            "paths": {
+                "/from-source": {
+                    "get": {
+                        "operationId": "Source_get",
+                        "summary": "Before replacement",
+                    }
+                }
+            }
+        }
+
+        patched = apply_openapi_patches(
+            {"paths": {}},
+            {
+                "merge": "source.json",
+                "operations": {
+                    "Source_get": {
+                        "replace": {"summary": "After replacement"}
+                    }
+                },
+            },
+            source_loader=lambda source: source_spec,
+        )
+
+        self.assertEqual(
+            patched["paths"]["/from-source"]["get"]["summary"],
+            "After replacement",
+        )
 
     def test_patch_supports_add_remove_and_copy_with_escaped_keys(self) -> None:
         spec = {"paths": {}, "x-dome": {"a/b": "value", "items": ["one"]}}
