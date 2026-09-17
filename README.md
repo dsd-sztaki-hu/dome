@@ -1,5 +1,6 @@
 # Dataverse OpenAPI MCP Engine (DOME) - A Configurable Dataverse MCP Server
 
+![DOME logo](./dome_logo.png)
 
 DOME is a configurable MCP engine that turns a Dataverse OpenAPI document into MCP tools,
 making selected parts of the Dataverse API available to AI agents, agent harnesses, and other
