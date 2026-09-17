@@ -16,6 +16,15 @@ and file upload, while having no need for user management or system settings. DO
 those relevant capabilities, keeping the MCP tool surface focused on the tasks the client actually
 needs.
 
+The usual use case for DOME is the following:
+
+1. An institute sets up a Dataverse installation for its researchers.
+2. The institute runs DOME as a central HTTP service next to the Dataverse installation, exposing
+   relevant Dataverse endpoints as MCP tools
+3. Researchers, data stewards or Dataverse admins use their favorite AI agent or agent harness 
+   (Codex, Claude Code, Gemini CLI, opencode, etc.) to perform tasks on Dataverse (like searching, 
+   creating, updatingm publishing datasets) using the DOME.
+   
 
 ## Install
 
