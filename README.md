@@ -191,6 +191,12 @@ API_KEY_MODE=request-header
 `API_KEY_HEADER` and `API_KEY_ENV` are optional. Their defaults are
 `X-Dataverse-key` and `DATAVERSE_API_TOKEN`.
 
+If the Dataverse or OpenAPI endpoint uses an expired or self-signed certificate,
+pass `--ignore-ssl-errors` or set `MCP_IGNORE_SSL_ERRORS=true`. This disables
+certificate verification for both OpenAPI retrieval and upstream Dataverse
+requests and should only be used on a trusted network. DOME prints a warning
+when this mode is active; `--no-ignore-ssl-errors` restores secure verification.
+
 ## Tag Filtering
 
 The server can filter the OpenAPI document before it creates MCP tools. This is

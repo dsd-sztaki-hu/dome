@@ -416,9 +416,9 @@ def is_http_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
-def load_openapi_spec(source: str, timeout: float) -> dict:
+def load_openapi_spec(source: str, timeout: float, verify_ssl: bool = True) -> dict:
     if is_http_url(source):
-        spec = fetch_openapi_spec(source, timeout)
+        spec = fetch_openapi_spec(source, timeout, verify_ssl=verify_ssl)
     else:
         with Path(source).open("r", encoding="utf-8") as handle:
             spec = json.load(handle)
@@ -427,9 +427,9 @@ def load_openapi_spec(source: str, timeout: float) -> dict:
     return spec
 
 
-def fetch_openapi_spec(url: str, timeout: float) -> dict:
+def fetch_openapi_spec(url: str, timeout: float, verify_ssl: bool = True) -> dict:
     try:
-        response = httpx.get(url, timeout=timeout)
+        response = httpx.get(url, timeout=timeout, verify=verify_ssl)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as exc:
@@ -689,7 +689,12 @@ def static_api_headers() -> dict[str, str]:
 
 def create_mcp_server(config: ServerConfig) -> FastMCP:
     openapi_spec = filter_openapi_by_tags(
-        load_openapi_spec(config.openapi_source, config.timeout), config
+        load_openapi_spec(
+            config.openapi_source,
+            config.timeout,
+            verify_ssl=not config.ignore_ssl_errors,
+        ),
+        config,
     )
     api_client = http_client.AsyncClient(
         base_url=config.api_base_url,
@@ -698,6 +703,7 @@ def create_mcp_server(config: ServerConfig) -> FastMCP:
             config, build_operation_auth_rules(openapi_spec, config)
         ),
         timeout=config.timeout,
+        verify=not config.ignore_ssl_errors,
     )
     return FastMCP.from_openapi(
         openapi_spec=openapi_spec,
@@ -775,6 +781,17 @@ def first_line(value: str | None) -> str:
     return " ".join(value.strip().splitlines()[0].split())
 
 
+def print_ssl_warning(config: ServerConfig) -> None:
+    if not config.ignore_ssl_errors:
+        return
+    print(
+        "WARNING: SSL certificate verification is disabled for OpenAPI and "
+        "Dataverse API requests.",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def run_server(config: ServerConfig, mcp: FastMCP) -> None:
     if config.transport == "stdio":
         kwargs = {"show_banner": False}
@@ -797,6 +814,7 @@ def run_server(config: ServerConfig, mcp: FastMCP) -> None:
 
 def main() -> None:
     config = build_config(parse_args())
+    print_ssl_warning(config)
     mcp = create_mcp_server(config)
     if config.show_banner:
         print_dome_banner(config)
