@@ -95,7 +95,7 @@ class ServerConfig:
     path: str
     show_banner: bool
     show_tools: bool
-    log_api_key_usage: bool
+    log_dataverse_requests: bool
     ignore_ssl_errors: bool
     log_level: str | None
     timeout: float
@@ -145,19 +145,21 @@ class DataverseApiKeyAuth(HttpAuth):
     async def async_auth_flow(self, request: HttpRequest):
         requires_api_key = self.operation_auth.requires_api_key(request)
         request.headers.pop(self.config.api_key_header, None)
-        if not requires_api_key:
-            yield request
-            return
+        if requires_api_key:
+            api_key = api_key_for_current_request(
+                self.config, require_http_context=requires_api_key
+            )
+            if api_key:
+                request.headers[self.config.api_key_header] = api_key
+            elif self.config.api_key_mode != "none":
+                raise RuntimeError(api_key_missing_message(self.config))
 
-        api_key = api_key_for_current_request(
-            self.config, require_http_context=requires_api_key
-        )
-        if api_key:
-            request.headers[self.config.api_key_header] = api_key
-            if self.config.log_api_key_usage:
-                log_api_key_usage(self.config, request)
-        elif self.config.api_key_mode != "none" and requires_api_key:
-            raise RuntimeError(api_key_missing_message(self.config))
+        if self.config.log_dataverse_requests:
+            log_dataverse_request(
+                self.config,
+                request,
+                authenticated=request_has_authentication(self.config, request),
+            )
         yield request
 
 
@@ -240,12 +242,12 @@ def parse_args() -> argparse.Namespace:
         help="Print the DOME startup banner (default: true).",
     )
     parser.add_argument(
-        "--log-api-key-usage",
+        "--log-dataverse-requests",
         action=argparse.BooleanOptionalAction,
-        default=parse_bool_env("MCP_LOG_API_KEY_USAGE", False),
+        default=parse_bool_env("MCP_LOG_DATAVERSE_REQUESTS", False),
         help=(
-            "Log when DOME forwards a Dataverse API key upstream; "
-            "never logs the token value (default: false)."
+            "Log each MCP-to-Dataverse request with its authentication status; "
+            "never logs credentials (default: false)."
         ),
     )
     parser.add_argument(
@@ -344,7 +346,7 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
         path=args.path,
         show_banner=args.show_banner,
         show_tools=args.show_tools,
-        log_api_key_usage=args.log_api_key_usage,
+        log_dataverse_requests=args.log_dataverse_requests,
         ignore_ssl_errors=args.ignore_ssl_errors,
         log_level=args.log_level,
         timeout=args.timeout,
@@ -715,12 +717,22 @@ def case_insensitive_header(headers, name: str) -> str | None:
     return None
 
 
-def log_api_key_usage(config: ServerConfig, request: HttpRequest) -> None:
+def request_has_authentication(config: ServerConfig, request: HttpRequest) -> bool:
+    return any(
+        request.headers.get(header_name)
+        for header_name in (config.api_key_header, "Authorization")
+    )
+
+
+def log_dataverse_request(
+    config: ServerConfig, request: HttpRequest, authenticated: bool
+) -> None:
     logger.info(
-        "[%s] Dataverse API key forwarded for %s %s",
+        "[%s] Dataverse request %s %s (auth=%s)",
         config.name,
         request.method.upper(),
         request.url.path,
+        "used" if authenticated else "not-used",
     )
 
 

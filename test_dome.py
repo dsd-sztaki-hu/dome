@@ -52,7 +52,7 @@ def make_config() -> ServerConfig:
         include_tools=(),
         exclude_tools=(),
         ignore_ssl_errors=False,
-        log_api_key_usage=False,
+        log_dataverse_requests=False,
         show_tools=True,
     )
 
@@ -67,7 +67,7 @@ def apply_auth(auth: DataverseApiKeyAuth, request: httpx.Request) -> httpx.Reque
 
 
 class DataverseApiKeyAuthTests(unittest.TestCase):
-    def test_authenticated_operation_can_log_key_forwarding_without_secret(self) -> None:
+    def test_authenticated_operation_logging_includes_auth_status_without_secret(self) -> None:
         operation_auth = OperationAuthRules(
             base_path="/api",
             rules=(
@@ -79,7 +79,7 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
             ),
         )
         auth = DataverseApiKeyAuth(
-            replace(make_config(), log_api_key_usage=True), operation_auth
+            replace(make_config(), log_dataverse_requests=True), operation_auth
         )
         request = httpx.Request("GET", "https://beta.dataverse.org/api/private")
 
@@ -92,8 +92,7 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
             "secret",
         )
         audit_log = "\n".join(logs.output)
-        self.assertIn("GET /api/private", audit_log)
-        self.assertIn("Dataverse API key forwarded", audit_log)
+        self.assertIn("Dataverse request GET /api/private (auth=used)", audit_log)
         self.assertNotIn("secret", audit_log)
 
     def test_authenticated_operation_receives_configured_api_key(self) -> None:
@@ -129,9 +128,7 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
                 ),
             ),
         )
-        auth = DataverseApiKeyAuth(
-            replace(make_config(), log_api_key_usage=True), operation_auth
-        )
+        auth = DataverseApiKeyAuth(make_config(), operation_auth)
         request = httpx.Request(
             "GET",
             "https://beta.dataverse.org/api/public",
@@ -143,6 +140,36 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
                 authenticated_request = apply_auth(auth, request)
 
         self.assertNotIn("X-Dataverse-key", authenticated_request.headers)
+
+    def test_public_operation_logging_includes_missing_auth_status(self) -> None:
+        operation_auth = OperationAuthRules(
+            base_path="/api",
+            rules=(
+                OperationAuthRule(
+                    method="get",
+                    path_template="/public",
+                    requires_api_key=False,
+                ),
+            ),
+        )
+        auth = DataverseApiKeyAuth(
+            replace(make_config(), log_dataverse_requests=True), operation_auth
+        )
+        request = httpx.Request(
+            "GET",
+            "https://beta.dataverse.org/api/public",
+            headers={"x-dataverse-key": "stale-secret"},
+        )
+
+        with patch.dict(os.environ, {"DATAVERSE_API_TOKEN": "secret"}, clear=False):
+            with self.assertLogs("fastmcp.dome", level="INFO") as logs:
+                authenticated_request = apply_auth(auth, request)
+
+        self.assertNotIn("X-Dataverse-key", authenticated_request.headers)
+        audit_log = "\n".join(logs.output)
+        self.assertIn("Dataverse request GET /api/public (auth=not-used)", audit_log)
+        self.assertNotIn("stale-secret", audit_log)
+        self.assertNotIn("secret", audit_log)
 
 
 class OpenApiFilterTests(unittest.TestCase):
@@ -532,19 +559,25 @@ class ArgumentParsingTests(unittest.TestCase):
 
         self.assertFalse(args.ignore_ssl_errors)
 
-    def test_mcp_log_api_key_usage_environment_setting_is_read(self) -> None:
-        with patch.dict(os.environ, {"MCP_LOG_API_KEY_USAGE": "true"}, clear=False):
+    def test_mcp_log_dataverse_requests_environment_setting_is_read(self) -> None:
+        with patch.dict(
+            os.environ, {"MCP_LOG_DATAVERSE_REQUESTS": "true"}, clear=False
+        ):
             with patch.object(sys, "argv", ["dome.py"]):
                 args = parse_args()
 
-        self.assertTrue(args.log_api_key_usage)
+        self.assertTrue(args.log_dataverse_requests)
 
-    def test_no_log_api_key_usage_cli_flag_overrides_environment(self) -> None:
-        with patch.dict(os.environ, {"MCP_LOG_API_KEY_USAGE": "true"}, clear=False):
-            with patch.object(sys, "argv", ["dome.py", "--no-log-api-key-usage"]):
+    def test_no_log_dataverse_requests_cli_flag_overrides_environment(self) -> None:
+        with patch.dict(
+            os.environ, {"MCP_LOG_DATAVERSE_REQUESTS": "true"}, clear=False
+        ):
+            with patch.object(
+                sys, "argv", ["dome.py", "--no-log-dataverse-requests"]
+            ):
                 args = parse_args()
 
-        self.assertFalse(args.log_api_key_usage)
+        self.assertFalse(args.log_dataverse_requests)
 
     def test_mcp_show_tools_environment_setting_is_read(self) -> None:
         with patch.dict(os.environ, {"MCP_SHOW_TOOLS": "false"}, clear=False):

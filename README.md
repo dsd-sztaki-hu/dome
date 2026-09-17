@@ -72,8 +72,9 @@ MCP_PORT=8000
 MCP_SHOW_BANNER=true
 # Show individual tool names and descriptions; set true to enable listing.
 MCP_SHOW_TOOLS=false
-# Log each upstream request that receives a Dataverse API key; never logs the token.
-MCP_LOG_API_KEY_USAGE=false
+# Log each MCP-to-Dataverse request with its authentication status; credentials
+# are never logged.
+MCP_LOG_DATAVERSE_REQUESTS=false
 # Disable TLS certificate verification; use only on a trusted network.
 MCP_IGNORE_SSL_ERRORS=false
 # Optional exact OpenAPI operationId filters (the generated MCP tool names).
@@ -124,8 +125,9 @@ MCP_PATH=/mcp
 MCP_SHOW_BANNER=true
 # Show individual tool names and descriptions; set true to enable listing.
 MCP_SHOW_TOOLS=false
-# Log each upstream request that receives a Dataverse API key; never logs the token.
-MCP_LOG_API_KEY_USAGE=false
+# Log each MCP-to-Dataverse request with its authentication status; credentials
+# are never logged.
+MCP_LOG_DATAVERSE_REQUESTS=false
 # Disable TLS certificate verification; use only on a trusted network.
 MCP_IGNORE_SSL_ERRORS=false
 INCLUDE_TAGS=Datasets,Files
@@ -170,11 +172,12 @@ For `request-header` and `env`, the server only fails locally when the matched
 OpenAPI operation requires the `DataverseApiKey` security scheme and no key is
 available. Public operations are called without `X-Dataverse-key`.
 
-For authentication diagnostics, pass `--log-api-key-usage` or set
-`MCP_LOG_API_KEY_USAGE=true`. DOME then writes one line to stderr whenever it
-attaches a Dataverse API key to an upstream request. The log contains only the
-HTTP method and path; the token itself is never logged. Use
-`--no-log-api-key-usage` to override the environment setting.
+For upstream request diagnostics, pass `--log-dataverse-requests` or set
+`MCP_LOG_DATAVERSE_REQUESTS=true`. DOME then writes one line to stderr for
+each MCP-to-Dataverse request, including the HTTP method, path, and whether
+authentication was used, for example `(auth=used)` or `(auth=not-used)`. The
+log never contains the token or other credential values. Use
+`--no-log-dataverse-requests` to override the environment setting.
 
 Recommended deployment profiles:
 
