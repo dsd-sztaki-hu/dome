@@ -177,11 +177,12 @@ For upstream request diagnostics, pass `--log-dataverse-requests` or set
 each MCP-to-Dataverse request, including the HTTP method, path, and whether
 authentication was used, for example `(auth=used)` or `(auth=not-used)`. The
 request records use DOME's colored Rich timestamp, level, and message format;
-source file and line numbers are intentionally omitted. The same format is
-used for FastMCP and Uvicorn startup, error, and HTTP access logs, so all
-server logs are consistent. Request records are emitted as one line even when
-the request path is long. They never contain the token or other credential
-values. Use
+source file and line numbers are intentionally omitted. Every log record
+includes its timestamp, including records emitted within the same second. The
+same format is used for FastMCP and Uvicorn startup, error, and HTTP access
+logs, so all server logs are consistent. Request records are emitted as one
+line even when the request path is long. They never contain the token or other
+credential values. Use
 `--no-log-dataverse-requests` to override the environment setting.
 
 Recommended deployment profiles:

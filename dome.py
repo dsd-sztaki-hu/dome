@@ -97,6 +97,7 @@ class DomeLogHandler(RichHandler):
         super().__init__(
             console=console,
             show_path=show_path,
+            omit_repeated_times=False,
             **rich_kwargs,
         )
         self.setFormatter(logging.Formatter("%(message)s"))

@@ -2,6 +2,7 @@ import asyncio
 import io
 import logging
 import os
+import re
 import sys
 import unittest
 from contextlib import redirect_stderr
@@ -216,6 +217,41 @@ class DomeLoggingTests(unittest.TestCase):
                 log_config["loggers"][logger_name]["handlers"],
                 ["dome"],
             )
+
+    def test_handler_shows_timestamp_on_every_line(self) -> None:
+        output = io.StringIO()
+        handler = DomeLogHandler(output)
+        records = [
+            logging.LogRecord(
+                name="uvicorn.error",
+                level=logging.INFO,
+                pathname="/tmp/uvicorn/server.py",
+                lineno=100,
+                msg="First message",
+                args=(),
+                exc_info=None,
+            ),
+            logging.LogRecord(
+                name="uvicorn.error",
+                level=logging.INFO,
+                pathname="/tmp/uvicorn/server.py",
+                lineno=101,
+                msg="Second message",
+                args=(),
+                exc_info=None,
+            ),
+        ]
+        records[1].created = records[0].created
+
+        for record in records:
+            handler.emit(record)
+
+        rendered = output.getvalue()
+        timestamps = re.findall(
+            r"\[\d{2}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\]",
+            rendered,
+        )
+        self.assertEqual(len(timestamps), 2)
 
 
 class OpenApiFilterTests(unittest.TestCase):
