@@ -93,7 +93,7 @@ the Dataverse API token from an environment variable
 ```bash
 export DATAVERSE_API_TOKEN="your-token"
 python dome.py \
-  --openapi ../dataverse/target/classes/META-INF/openapi.json \
+  --openapi http://127.0.0.1:8080/openapi \
   --api-base-url http://127.0.0.1:8080/api/ \
   --api-key-mode env \
   --transport stdio
@@ -107,7 +107,7 @@ an HTTP(S) URL, for example `--openapi http://127.0.0.1:8080/openapi.json`.
 You can use environment variables instead of CLI options:
 
 ```env
-OPENAPI_PATH=../dataverse/target/classes/META-INF/openapi.json
+OPENAPI_PATH=http://127.0.0.1:8080/openapi
 API_BASE_URL=http://127.0.0.1:8080/api/
 API_KEY_MODE=request-header
 API_KEY_HEADER=X-Dataverse-key
@@ -206,7 +206,7 @@ Expose only selected resource groups:
 
 ```bash
 python dome.py \
-  --openapi ../dataverse/target/classes/META-INF/openapi.json \
+  --openapi http://127.0.0.1:8080/openapi.json \
   --include-tag Datasets \
   --include-tag Files \
   --api-key-mode request-header \
@@ -217,7 +217,7 @@ Exclude administrative tools:
 
 ```bash
 python dome.py \
-  --openapi ../dataverse/target/classes/META-INF/openapi.json \
+  --openapi http://127.0.0.1:8080/openapi.json \
   --exclude-tag Admin \
   --api-key-mode request-header \
   --transport streamable-http
