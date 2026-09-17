@@ -248,7 +248,7 @@ class DomeLoggingTests(unittest.TestCase):
 
         rendered = output.getvalue()
         timestamps = re.findall(
-            r"\[\d{2}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\]",
+            r"\[\d{2}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\]",
             rendered,
         )
         self.assertEqual(len(timestamps), 2)

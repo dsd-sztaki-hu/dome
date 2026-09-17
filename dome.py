@@ -85,6 +85,12 @@ HttpRequest = http_client.Request
 HttpAuth = http_client.Auth
 
 
+def dome_log_time_format(log_time: datetime) -> Text:
+    """Format log timestamps with millisecond precision."""
+
+    return Text(f"{log_time.strftime('[%x %X')}.{log_time.microsecond // 1000:03d}]")
+
+
 class DomeLogHandler(RichHandler):
     """Render DOME, FastMCP, and Uvicorn records in one Rich format."""
 
@@ -94,6 +100,7 @@ class DomeLogHandler(RichHandler):
                 file=stream if stream is not None else sys.stderr,
                 soft_wrap=True,
             )
+        rich_kwargs.setdefault("log_time_format", dome_log_time_format)
         super().__init__(
             console=console,
             show_path=show_path,
