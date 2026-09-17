@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# ************************************************************************************************
+# Copyright (C) 2025-2026 SZTAKI, Department of Distributed Systems ([https://dsd.sztaki.hu](https://dsd.sztaki.hu)).
+#
+# SPDX-License-Identifier: Apache-2.0
+# ************************************************************************************************
 """Configurable DOME MCP server for an OpenAPI specification."""
 
 from __future__ import annotations

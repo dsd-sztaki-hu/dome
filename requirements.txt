@@ -1,3 +1,8 @@
+# ************************************************************************************************
+# Copyright (C) 2025-2026 SZTAKI, Department of Distributed Systems ([https://dsd.sztaki.hu](https://dsd.sztaki.hu)).
+#
+# SPDX-License-Identifier: Apache-2.0
+# ************************************************************************************************
 fastmcp>=3.0.0
 httpx>=0.27.0
 httpx2>=2.5.0
