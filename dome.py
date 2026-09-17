@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import json
 import logging
+import logging.config
 import os
 import sys
 from dataclasses import dataclass
@@ -84,15 +85,19 @@ HttpRequest = http_client.Request
 HttpAuth = http_client.Auth
 
 
-class DataverseRequestLogHandler(RichHandler):
-    """Render request diagnostics like FastMCP without terminal line folding."""
+class DomeLogHandler(RichHandler):
+    """Render DOME, FastMCP, and Uvicorn records in one Rich format."""
 
-    def __init__(self, stream=None) -> None:
-        super().__init__(
-            console=Console(
+    def __init__(self, stream=None, *, show_path=False, console=None, **rich_kwargs) -> None:
+        if console is None:
+            console = Console(
                 file=stream if stream is not None else sys.stderr,
                 soft_wrap=True,
             )
+        super().__init__(
+            console=console,
+            show_path=show_path,
+            **rich_kwargs,
         )
         self.setFormatter(logging.Formatter("%(message)s"))
 
@@ -812,14 +817,51 @@ def log_dataverse_request(
     )
 
 
-def configure_dataverse_request_logging() -> None:
-    if any(
-        isinstance(handler, DataverseRequestLogHandler)
-        for handler in logger.handlers
-    ):
-        return
-    logger.propagate = False
-    logger.addHandler(DataverseRequestLogHandler())
+def build_dome_log_config(config: ServerConfig) -> dict:
+    log_level = (config.log_level or "INFO").upper()
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "dome": {"format": "%(message)s"},
+        },
+        "handlers": {
+            "dome": {
+                "()": DomeLogHandler,
+                "formatter": "dome",
+                "stream": "ext://sys.stderr",
+                "show_path": False,
+                "rich_tracebacks": True,
+                "tracebacks_max_frames": 3,
+            },
+        },
+        "loggers": {
+            "fastmcp": {
+                "handlers": ["dome"],
+                "level": log_level,
+                "propagate": False,
+            },
+            "uvicorn": {
+                "handlers": ["dome"],
+                "level": log_level,
+                "propagate": False,
+            },
+            "uvicorn.error": {
+                "handlers": ["dome"],
+                "level": log_level,
+                "propagate": False,
+            },
+            "uvicorn.access": {
+                "handlers": ["dome"],
+                "level": log_level,
+                "propagate": False,
+            },
+        },
+    }
+
+
+def configure_dome_logging(config: ServerConfig) -> None:
+    logging.config.dictConfig(build_dome_log_config(config))
 
 
 def single_line_text(value: object) -> str:
@@ -969,10 +1011,7 @@ def print_ssl_warning(config: ServerConfig) -> None:
 
 def run_server(config: ServerConfig, mcp: FastMCP) -> None:
     if config.transport == "stdio":
-        kwargs = {"show_banner": False}
-        if config.log_level:
-            kwargs["log_level"] = config.log_level
-        mcp.run(**kwargs)
+        mcp.run(show_banner=False)
         return
 
     kwargs = {
@@ -981,18 +1020,16 @@ def run_server(config: ServerConfig, mcp: FastMCP) -> None:
         "port": config.port,
         "path": config.path,
         "show_banner": False,
+        "uvicorn_config": {"log_config": build_dome_log_config(config)},
     }
-    if config.log_level:
-        kwargs["log_level"] = config.log_level
     mcp.run(**kwargs)
 
 
 def main() -> None:
     config = build_config(parse_args())
+    configure_dome_logging(config)
     print_ssl_warning(config)
     mcp = create_mcp_server(config)
-    if config.log_dataverse_requests:
-        configure_dataverse_request_logging()
     if config.show_banner:
         print_dome_banner(config)
     print_served_tools(config, mcp)

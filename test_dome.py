@@ -18,11 +18,12 @@ from rich.logging import RichHandler
 
 from dome import (
     DataverseApiKeyAuth,
-    DataverseRequestLogHandler,
+    DomeLogHandler,
     OperationAuthRule,
     OperationAuthRules,
     ServerConfig,
     build_config,
+    build_dome_log_config,
     create_mcp_server,
     fetch_openapi_spec,
     filter_openapi_by_tags,
@@ -175,10 +176,10 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
         self.assertNotIn("secret", audit_log)
 
 
-class DataverseRequestLoggingTests(unittest.TestCase):
+class DomeLoggingTests(unittest.TestCase):
     def test_handler_uses_fastmcp_style_format_without_newlines(self) -> None:
         output = io.StringIO()
-        handler = DataverseRequestLogHandler(output)
+        handler = DomeLogHandler(output)
         self.assertIsInstance(handler, RichHandler)
         self.assertTrue(handler.console.soft_wrap)
         record = logging.LogRecord(
@@ -200,9 +201,21 @@ class DataverseRequestLoggingTests(unittest.TestCase):
         self.assertEqual(rendered.count("\n"), 1)
         self.assertIn(
             "INFO     [Dataverse DOME MCP] Dataverse request GET "
-            "/api/mydata/retrieve/collectionList (auth=used) dome.py:730",
+            "/api/mydata/retrieve/collectionList (auth=used)",
             rendered,
         )
+        self.assertNotIn("dome.py:730", rendered)
+
+    def test_shared_log_config_uses_dome_handler_without_source_paths(self) -> None:
+        log_config = build_dome_log_config(make_config())
+
+        self.assertIs(log_config["handlers"]["dome"]["()"], DomeLogHandler)
+        self.assertFalse(log_config["handlers"]["dome"]["show_path"])
+        for logger_name in ("fastmcp", "uvicorn", "uvicorn.error", "uvicorn.access"):
+            self.assertEqual(
+                log_config["loggers"][logger_name]["handlers"],
+                ["dome"],
+            )
 
 
 class OpenApiFilterTests(unittest.TestCase):
@@ -459,6 +472,7 @@ class RunServerTests(unittest.TestCase):
             port=8000,
             path="/mcp",
             show_banner=False,
+            uvicorn_config={"log_config": build_dome_log_config(config)},
         )
 
 
