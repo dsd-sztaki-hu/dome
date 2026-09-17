@@ -60,6 +60,27 @@ HTTP_METHODS = {
 }
 
 
+def _fastmcp_major_version() -> int:
+    return int(fastmcp.__version__.split(".", 1)[0])
+
+
+def _select_http_client_module():
+    if _fastmcp_major_version() >= 4:
+        if httpx2 is None:
+            raise RuntimeError(
+                "FastMCP 4 or newer requires the httpx2 package for OpenAPI clients."
+            )
+        return httpx2
+    return httpx
+
+
+# FastMCP 4 changed OpenAPIProvider from the legacy httpx package to httpx2.
+# Keep the auth implementation on the same client family as the provider.
+http_client = _select_http_client_module()
+HttpRequest = http_client.Request
+HttpAuth = http_client.Auth
+
+
 @dataclass(frozen=True)
 class ServerConfig:
     name: str
@@ -94,7 +115,7 @@ class OperationAuthRules:
     base_path: str
     rules: tuple[OperationAuthRule, ...]
 
-    def requires_api_key(self, request: httpx.Request) -> bool:
+    def requires_api_key(self, request: HttpRequest) -> bool:
         method = request.method.lower()
         path = self.relative_request_path(request.url.path)
         for rule in self.rules:
@@ -114,12 +135,12 @@ class OperationAuthRules:
         return path
 
 
-class DataverseApiKeyAuth(httpx.Auth):
+class DataverseApiKeyAuth(HttpAuth):
     def __init__(self, config: ServerConfig, operation_auth: OperationAuthRules) -> None:
         self.config = config
         self.operation_auth = operation_auth
 
-    async def async_auth_flow(self, request: httpx.Request):
+    async def async_auth_flow(self, request: HttpRequest):
         requires_api_key = self.operation_auth.requires_api_key(request)
         request.headers.pop(self.config.api_key_header, None)
         if not requires_api_key:
@@ -658,7 +679,7 @@ def create_mcp_server(config: ServerConfig) -> FastMCP:
     openapi_spec = filter_openapi_by_tags(
         load_openapi_spec(config.openapi_source, config.timeout), config
     )
-    api_client = httpx.AsyncClient(
+    api_client = http_client.AsyncClient(
         base_url=config.api_base_url,
         headers=static_api_headers(),
         auth=DataverseApiKeyAuth(
@@ -771,5 +792,12 @@ def main() -> None:
     run_server(config, mcp)
 
 
+def run() -> None:
+    try:
+        main()
+    except KeyboardInterrupt:
+        return
+
+
 if __name__ == "__main__":
-    main()
+    run()
