@@ -512,23 +512,22 @@ class OpenApiPatchTests(unittest.TestCase):
                 }
             }
         }
-        patches = [
-            {
-                "op": "replace",
-                "path": (
-                    "/paths/~1dataverses~1{identifier}~1datasets/post/"
-                    "requestBody/content"
-                ),
-                "value": {
-                    "application/json": {
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": True,
+        patches = {
+            "operations": {
+                "Dataverses_createDataset": {
+                    "replace": {
+                        "requestBody.content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": True,
+                                }
+                            }
                         }
                     }
-                },
+                }
             }
-        ]
+        }
 
         patched = apply_openapi_patches(spec, patches)
 
@@ -536,7 +535,9 @@ class OpenApiPatchTests(unittest.TestCase):
             patched["paths"]["/dataverses/{identifier}/datasets"]["post"][
                 "requestBody"
             ]["content"],
-            patches[0]["value"],
+            patches["operations"]["Dataverses_createDataset"]["replace"][
+                "requestBody.content"
+            ],
         )
         self.assertEqual(
             list(
@@ -545,6 +546,47 @@ class OpenApiPatchTests(unittest.TestCase):
                 ]["content"]
             ),
             ["application/ld+json", "application/json"],
+        )
+
+    def test_operation_override_can_replace_a_nested_media_type_schema(self) -> None:
+        spec = {
+            "paths": {
+                "/dataverses/{identifier}/validateDatasetJson": {
+                    "post": {
+                        "operationId": "Dataverses_validateDatasetJson",
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"type": "string"}
+                                }
+                            }
+                        },
+                    }
+                }
+            }
+        }
+
+        patched = apply_openapi_patches(
+            spec,
+            {
+                "operations": {
+                    "Dataverses_validateDatasetJson": {
+                        "replace": {
+                            "requestBody.content.application/json.schema": {
+                                "type": "object",
+                                "additionalProperties": True,
+                            }
+                        }
+                    }
+                }
+            },
+        )
+
+        self.assertEqual(
+            patched["paths"]["/dataverses/{identifier}/validateDatasetJson"]["post"][
+                "requestBody"
+            ]["content"]["application/json"]["schema"],
+            {"type": "object", "additionalProperties": True},
         )
 
     def test_patch_file_can_use_a_wrapped_patch_document(self) -> None:

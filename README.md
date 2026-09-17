@@ -80,7 +80,7 @@ MCP_SHOW_TOOLS=false
 MCP_LOG_DATAVERSE_REQUESTS=false
 # Disable TLS certificate verification; use only on a trusted network.
 MCP_IGNORE_SSL_ERRORS=false
-# Optional local JSON Patch file applied after fetching the OpenAPI document.
+# Optional local OpenAPI correction file applied after fetching the document.
 # MCP_OPENAPI_PATCH=./openapi-patches.json
 # Optional exact OpenAPI operationId filters (the generated MCP tool names).
 # INCLUDE_TOOLS=DataRetrieverAPI_retrieveMyCollectionList,DataRetrieverAPI_retrieveMyDataAsJsonString
@@ -134,32 +134,39 @@ Or configure the same path in `.env`:
 MCP_OPENAPI_PATCH=./openapi-patches.json
 ```
 
-The patch file contains an array of JSON Patch operations. DOME supports
-`add`, `remove`, `replace`, `move`, `copy`, and `test`. For example, this patch
-corrects the Dataverse dataset-creation operation: it removes the ambiguous
-JSON-LD alternatives and exposes the standard dataset JSON body as an object.
+The recommended correction-file format targets an OpenAPI operation by its
+`operationId`, then names the operation-relative fields to replace. For
+example, this correction targets `Dataverses_createDataset`, removes the
+ambiguous JSON-LD alternatives, and exposes the standard dataset JSON body as
+an object:
 
 ```json
-[
-  {
-    "op": "replace",
-    "path": "/paths/~1dataverses~1{identifier}~1datasets/post/requestBody/content",
-    "value": {
-      "application/json": {
-        "schema": {
-          "type": "object",
-          "additionalProperties": true
+{
+  "operations": {
+    "Dataverses_createDataset": {
+      "replace": {
+        "requestBody.content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
         }
       }
     }
   }
-]
+}
 ```
 
-JSON Pointer escapes `/` as `~1` and `~` as `~0`, which is why the OpenAPI
-path above contains `~1`. Multiple operations can be kept in the same patch
-file. DOME exits with a clear error if the file or any patch operation is
-invalid.
+Replacement paths use dot-separated names relative to the selected operation.
+For example, `requestBody.content.application/json.schema` identifies that
+media type's schema without JSON Pointer escaping. Multiple operation targets
+and replacements can be kept in the same file. DOME exits with a clear error if
+the file, operationId, or replacement target is invalid.
+
+For advanced corrections, the original RFC 6902 JSON Patch array format is
+also supported.
 
 ## Environment
 
@@ -184,7 +191,7 @@ MCP_SHOW_TOOLS=false
 MCP_LOG_DATAVERSE_REQUESTS=false
 # Disable TLS certificate verification; use only on a trusted network.
 MCP_IGNORE_SSL_ERRORS=false
-# Optional local JSON Patch file applied after fetching the OpenAPI document.
+# Optional local OpenAPI correction file applied after fetching the document.
 # MCP_OPENAPI_PATCH=./openapi-patches.json
 INCLUDE_TAGS=Datasets,Files
 # EXCLUDE_TAGS=Admin

@@ -271,8 +271,8 @@ def parse_args() -> argparse.Namespace:
         "--openapi-patch",
         default=os.getenv("MCP_OPENAPI_PATCH") or None,
         help=(
-            "Path to a local JSON Patch file applied to the OpenAPI document "
-            "before DOME creates MCP tools."
+            "Path to a local OpenAPI correction file (operation overrides or "
+            "JSON Patch) applied before DOME creates MCP tools."
         ),
     )
     parser.add_argument(
@@ -589,9 +589,16 @@ def apply_openapi_patch_file(spec: dict, path: str) -> dict:
 
 
 def apply_openapi_patches(spec: dict, patches: object) -> dict:
-    """Apply an RFC 6902-style JSON Patch document to an OpenAPI document."""
+    """Apply an OpenAPI correction document to an OpenAPI document.
+
+    The preferred format targets operations by operationId. An RFC 6902-style
+    JSON Patch array remains supported for advanced or backwards-compatible
+    corrections.
+    """
 
     if isinstance(patches, dict):
+        if "operations" in patches:
+            return apply_openapi_operation_overrides(spec, patches["operations"])
         patches = patches.get("patches")
     if not isinstance(patches, list):
         raise ValueError("the patch document must be an array of patch operations")
@@ -609,6 +616,90 @@ def apply_openapi_patches(spec: dict, patches: object) -> dict:
     if not isinstance(patched, dict) or not isinstance(patched.get("paths"), dict):
         raise ValueError("patches must leave the OpenAPI document with a paths object")
     return patched
+
+
+def apply_openapi_operation_overrides(spec: dict, operations: object) -> dict:
+    """Apply human-readable operationId-targeted replacements."""
+
+    if not isinstance(operations, dict):
+        raise ValueError("'operations' must be an object keyed by operationId")
+
+    patched = deepcopy(spec)
+    if not isinstance(patched, dict) or not isinstance(patched.get("paths"), dict):
+        raise ValueError("the OpenAPI document must contain a paths object")
+
+    operation_matches = {}
+    for path, path_item in patched["paths"].items():
+        if not isinstance(path_item, dict):
+            continue
+        for method, operation in path_item.items():
+            if (
+                method.lower() in HTTP_METHODS
+                and isinstance(operation, dict)
+                and isinstance(operation.get("operationId"), str)
+            ):
+                operation_matches.setdefault(operation["operationId"], []).append(
+                    (path, method, operation)
+                )
+
+    for operation_id, override in operations.items():
+        if not isinstance(operation_id, str) or not operation_id.strip():
+            raise ValueError("operation override keys must be non-empty operationId strings")
+
+        matches = operation_matches.get(operation_id, [])
+        if not matches:
+            raise ValueError(f"operationId not found: {operation_id}")
+        if len(matches) > 1:
+            raise ValueError(f"operationId is not unique: {operation_id}")
+        if not isinstance(override, dict):
+            raise ValueError(f"override for {operation_id} must be an object")
+
+        replacements = override.get("replace")
+        if not isinstance(replacements, dict) or not replacements:
+            raise ValueError(
+                f"override for {operation_id} must contain a non-empty 'replace' object"
+            )
+
+        operation = matches[0][2]
+        for relative_path, value in replacements.items():
+            replace_operation_value(operation, relative_path, value, operation_id)
+
+    return patched
+
+
+def replace_operation_value(
+    operation: dict,
+    relative_path: object,
+    value: object,
+    operation_id: str,
+) -> None:
+    if not isinstance(relative_path, str) or not relative_path.strip():
+        raise ValueError(
+            f"replacement paths for {operation_id} must be non-empty strings"
+        )
+
+    path_parts = relative_path.split(".")
+    if any(not part for part in path_parts):
+        raise ValueError(
+            f"replacement path for {operation_id} contains an empty segment: "
+            f"{relative_path}"
+        )
+
+    parent: object = operation
+    for part in path_parts[:-1]:
+        if not isinstance(parent, dict) or part not in parent:
+            raise ValueError(
+                f"replacement target does not exist for {operation_id}: "
+                f"{relative_path}"
+            )
+        parent = parent[part]
+
+    final_part = path_parts[-1]
+    if not isinstance(parent, dict) or final_part not in parent:
+        raise ValueError(
+            f"replacement target does not exist for {operation_id}: {relative_path}"
+        )
+    parent[final_part] = deepcopy(value)
 
 
 def apply_openapi_patch_operation(document: object, operation: object) -> object:
