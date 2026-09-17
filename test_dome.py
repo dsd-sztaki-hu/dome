@@ -102,6 +102,7 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
             "secret",
         )
         audit_log = "\n".join(logs.output)
+        self.assertIn("[DOME] Dataverse request GET /api/private (auth=used)", audit_log)
         self.assertIn("Dataverse request GET /api/private (auth=used)", audit_log)
         self.assertNotIn("secret", audit_log)
 
@@ -194,7 +195,7 @@ class DomeLoggingTests(unittest.TestCase):
             pathname="/tmp/dome.py",
             lineno=730,
             msg=(
-                "[Dataverse DOME MCP] Dataverse request GET "
+                "[DOME] Dataverse request GET "
                 "/api/mydata/retrieve/collectionList (auth=used)"
             ),
             args=(),
@@ -206,7 +207,7 @@ class DomeLoggingTests(unittest.TestCase):
         rendered = output.getvalue()
         self.assertEqual(rendered.count("\n"), 1)
         self.assertIn(
-            "INFO     [Dataverse DOME MCP] Dataverse request GET "
+            "INFO     [DOME] Dataverse request GET "
             "/api/mydata/retrieve/collectionList (auth=used)",
             rendered,
         )

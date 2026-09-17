@@ -1214,8 +1214,7 @@ def log_dataverse_request(
     config: ServerConfig, request: HttpRequest, authenticated: bool
 ) -> None:
     logger.info(
-        "[%s] Dataverse request %s %s (auth=%s)",
-        single_line_text(config.name),
+        "[DOME] Dataverse request %s %s (auth=%s)",
         request.method.upper(),
         single_line_text(request.url.path),
         "used" if authenticated else "not-used",
