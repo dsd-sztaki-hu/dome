@@ -165,6 +165,15 @@ media type's schema without JSON Pointer escaping. Multiple operation targets
 and replacements can be kept in the same file. DOME exits with a clear error if
 the file, operationId, or replacement target is invalid.
 
+This repository includes [openapi-patches.json](./openapi-patches.json), a
+ready-to-use correction profile for the supplied Dataverse 6.11 OpenAPI
+document. It fixes source-confirmed JSON object/array, boolean, and integer
+request bodies, removes unused GET/DELETE request bodies, and keeps the
+standard `Dataverses_createDataset` route on `application/json`. Enable it with
+`--openapi-patch ./openapi-patches.json` or
+`MCP_OPENAPI_PATCH=./openapi-patches.json`. The profile deliberately leaves
+raw text, XML, multipart, and otherwise ambiguous wildcard bodies unchanged.
+
 For advanced corrections, the original RFC 6902 JSON Patch array format is
 also supported.
 
