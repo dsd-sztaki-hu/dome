@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from copy import deepcopy
 import json
 import logging
 import logging.config
@@ -174,6 +175,7 @@ class DomeLogHandler(RichHandler):
 class ServerConfig:
     name: str
     openapi_source: str
+    openapi_patch_path: str | None
     api_base_url: str
     api_key_header: str
     api_key_env: str
@@ -264,6 +266,14 @@ def parse_args() -> argparse.Namespace:
         "--openapi",
         default=os.getenv("OPENAPI_PATH", str(DEFAULT_OPENAPI_PATH)),
         help="Path or HTTP(S) URL to the OpenAPI JSON file.",
+    )
+    parser.add_argument(
+        "--openapi-patch",
+        default=os.getenv("MCP_OPENAPI_PATCH") or None,
+        help=(
+            "Path to a local JSON Patch file applied to the OpenAPI document "
+            "before DOME creates MCP tools."
+        ),
     )
     parser.add_argument(
         "--api-base-url",
@@ -410,6 +420,9 @@ def parse_bool_env(name: str, default: bool) -> bool:
 
 def build_config(args: argparse.Namespace) -> ServerConfig:
     openapi_source = normalize_openapi_source(args.openapi)
+    openapi_patch_path = normalize_openapi_patch_path(
+        getattr(args, "openapi_patch", None)
+    )
 
     if not args.api_base_url:
         raise SystemExit(
@@ -425,6 +438,7 @@ def build_config(args: argparse.Namespace) -> ServerConfig:
     return ServerConfig(
         name=args.name,
         openapi_source=openapi_source,
+        openapi_patch_path=openapi_patch_path,
         api_base_url=args.api_base_url,
         api_key_header=args.api_key_header,
         api_key_env=args.api_key_env,
@@ -511,6 +525,22 @@ def normalize_openapi_source(value: str) -> str:
     return str(path)
 
 
+def normalize_openapi_patch_path(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    source = str(value).strip()
+    if not source:
+        return None
+
+    path = resolve_openapi_path(source)
+    if path is None or not path.is_file():
+        raise SystemExit(
+            f"OpenAPI patch file not found: {Path(source).expanduser().resolve()}"
+        )
+    return str(path)
+
+
 def resolve_openapi_path(source: str) -> Path | None:
     path = Path(source).expanduser()
     candidates = [path]
@@ -538,6 +568,214 @@ def load_openapi_spec(source: str, timeout: float, verify_ssl: bool = True) -> d
     if not isinstance(spec, dict) or not isinstance(spec.get("paths"), dict):
         raise SystemExit(f"OpenAPI document must contain a paths object: {source}")
     return spec
+
+
+def apply_openapi_patch_file(spec: dict, path: str) -> dict:
+    patch_path = Path(path)
+    try:
+        with patch_path.open("r", encoding="utf-8") as handle:
+            patch_document = json.load(handle)
+    except OSError as exc:
+        raise SystemExit(f"Could not read OpenAPI patch file {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"OpenAPI patch file is not valid JSON {path}: {exc}"
+        ) from exc
+
+    try:
+        return apply_openapi_patches(spec, patch_document)
+    except ValueError as exc:
+        raise SystemExit(f"Invalid OpenAPI patch file {path}: {exc}") from exc
+
+
+def apply_openapi_patches(spec: dict, patches: object) -> dict:
+    """Apply an RFC 6902-style JSON Patch document to an OpenAPI document."""
+
+    if isinstance(patches, dict):
+        patches = patches.get("patches")
+    if not isinstance(patches, list):
+        raise ValueError("the patch document must be an array of patch operations")
+
+    patched = deepcopy(spec)
+    if not isinstance(patched, dict):
+        raise ValueError("the OpenAPI document must be a JSON object")
+
+    for operation_index, operation in enumerate(patches):
+        try:
+            patched = apply_openapi_patch_operation(patched, operation)
+        except ValueError as exc:
+            raise ValueError(f"operation {operation_index}: {exc}") from exc
+
+    if not isinstance(patched, dict) or not isinstance(patched.get("paths"), dict):
+        raise ValueError("patches must leave the OpenAPI document with a paths object")
+    return patched
+
+
+def apply_openapi_patch_operation(document: object, operation: object) -> object:
+    if not isinstance(operation, dict):
+        raise ValueError("each patch operation must be an object")
+
+    operation_name = operation.get("op")
+    if not isinstance(operation_name, str):
+        raise ValueError("patch operation is missing a string 'op'")
+    operation_name = operation_name.casefold()
+
+    path = operation.get("path")
+    path_parts = json_pointer_parts(path)
+
+    if operation_name == "add":
+        require_patch_value(operation)
+        return add_json_pointer_value(document, path_parts, operation["value"])
+
+    if operation_name == "remove":
+        if not path_parts:
+            raise ValueError("remove cannot target the document root")
+        return remove_json_pointer_value(document, path_parts)
+
+    if operation_name == "replace":
+        require_patch_value(operation)
+        if not path_parts:
+            return deepcopy(operation["value"])
+        return replace_json_pointer_value(document, path_parts, operation["value"])
+
+    if operation_name == "copy":
+        source_parts = json_pointer_parts(operation.get("from"))
+        return add_json_pointer_value(
+            document,
+            path_parts,
+            deepcopy(get_json_pointer_value(document, source_parts)),
+        )
+
+    if operation_name == "move":
+        source_parts = json_pointer_parts(operation.get("from"))
+        if source_parts == path_parts:
+            return document
+        if path_parts[: len(source_parts)] == source_parts:
+            raise ValueError("move cannot target a child of its source")
+        value = deepcopy(get_json_pointer_value(document, source_parts))
+        if not source_parts:
+            raise ValueError("move cannot remove the document root")
+        document = remove_json_pointer_value(document, source_parts)
+        return add_json_pointer_value(document, path_parts, value)
+
+    if operation_name == "test":
+        require_patch_value(operation)
+        actual = get_json_pointer_value(document, path_parts)
+        if actual != operation["value"]:
+            raise ValueError(f"test failed at {path or '<document root>'}")
+        return document
+
+    raise ValueError(f"unsupported patch operation '{operation_name}'")
+
+
+def require_patch_value(operation: dict) -> None:
+    if "value" not in operation:
+        raise ValueError("patch operation is missing 'value'")
+
+
+def json_pointer_parts(pointer: object) -> list[str]:
+    if not isinstance(pointer, str):
+        raise ValueError("JSON Pointer must be a string")
+    if pointer == "":
+        return []
+    if not pointer.startswith("/"):
+        raise ValueError("JSON Pointer must be empty or start with '/'")
+
+    parts = []
+    for raw_part in pointer[1:].split("/"):
+        decoded = []
+        index = 0
+        while index < len(raw_part):
+            character = raw_part[index]
+            if character != "~":
+                decoded.append(character)
+                index += 1
+                continue
+            if index + 1 >= len(raw_part) or raw_part[index + 1] not in {"0", "1"}:
+                raise ValueError(f"invalid JSON Pointer escape in '{pointer}'")
+            decoded.append("~" if raw_part[index + 1] == "0" else "/")
+            index += 2
+        parts.append("".join(decoded))
+    return parts
+
+
+def get_json_pointer_value(document: object, parts: list[str]) -> object:
+    current = document
+    for part in parts:
+        if isinstance(current, dict):
+            if part not in current:
+                raise ValueError(f"JSON Pointer target does not exist: /{'/'.join(parts)}")
+            current = current[part]
+        elif isinstance(current, list):
+            index = json_pointer_array_index(part, len(current))
+            current = current[index]
+        else:
+            raise ValueError("JSON Pointer traverses a scalar value")
+    return current
+
+
+def json_pointer_parent(document: object, parts: list[str]) -> tuple[object, str]:
+    if not parts:
+        raise ValueError("JSON Pointer must identify a child value")
+    return get_json_pointer_value(document, parts[:-1]), parts[-1]
+
+
+def json_pointer_array_index(part: str, length: int, *, allow_end: bool = False) -> int:
+    if part == "-":
+        if allow_end:
+            return length
+        raise ValueError("'-' is only valid for adding to an array")
+    if not part or (len(part) > 1 and part.startswith("0")) or not all(
+        character in "0123456789" for character in part
+    ):
+        raise ValueError(f"invalid JSON array index '{part}'")
+    index = int(part)
+    upper_bound = length if allow_end else length - 1
+    if index < 0 or index > upper_bound:
+        raise ValueError(f"JSON array index out of range: {part}")
+    return index
+
+
+def add_json_pointer_value(document: object, parts: list[str], value: object) -> object:
+    if not parts:
+        return deepcopy(value)
+    parent, part = json_pointer_parent(document, parts)
+    if isinstance(parent, dict):
+        parent[part] = deepcopy(value)
+        return document
+    if isinstance(parent, list):
+        parent.insert(
+            json_pointer_array_index(part, len(parent), allow_end=True),
+            deepcopy(value),
+        )
+        return document
+    raise ValueError("JSON Pointer parent is not an object or array")
+
+
+def remove_json_pointer_value(document: object, parts: list[str]) -> object:
+    parent, part = json_pointer_parent(document, parts)
+    if isinstance(parent, dict):
+        if part not in parent:
+            raise ValueError(f"JSON Pointer target does not exist: /{'/'.join(parts)}")
+        del parent[part]
+        return document
+    if isinstance(parent, list):
+        del parent[json_pointer_array_index(part, len(parent))]
+        return document
+    raise ValueError("JSON Pointer parent is not an object or array")
+
+
+def replace_json_pointer_value(document: object, parts: list[str], value: object) -> object:
+    parent, part = json_pointer_parent(document, parts)
+    if isinstance(parent, dict):
+        if part not in parent:
+            raise ValueError(f"JSON Pointer target does not exist: /{'/'.join(parts)}")
+        parent[part] = deepcopy(value)
+        return document
+    if isinstance(parent, list):
+        parent[json_pointer_array_index(part, len(parent))] = deepcopy(value)
+        return document
+    raise ValueError("JSON Pointer parent is not an object or array")
 
 
 def fetch_openapi_spec(url: str, timeout: float, verify_ssl: bool = True) -> dict:
@@ -905,14 +1143,17 @@ def static_api_headers() -> dict[str, str]:
 
 
 def create_mcp_server(config: ServerConfig) -> FastMCP:
-    openapi_spec = filter_openapi_by_tags(
-        load_openapi_spec(
-            config.openapi_source,
-            config.timeout,
-            verify_ssl=not config.ignore_ssl_errors,
-        ),
-        config,
+    openapi_spec = load_openapi_spec(
+        config.openapi_source,
+        config.timeout,
+        verify_ssl=not config.ignore_ssl_errors,
     )
+    if config.openapi_patch_path:
+        openapi_spec = apply_openapi_patch_file(
+            openapi_spec,
+            config.openapi_patch_path,
+        )
+    openapi_spec = filter_openapi_by_tags(openapi_spec, config)
     api_client = http_client.AsyncClient(
         base_url=config.api_base_url,
         headers=static_api_headers(),
@@ -936,6 +1177,12 @@ def print_served_tools(config: ServerConfig, mcp: FastMCP) -> None:
         file=sys.stderr,
         flush=True,
     )
+    if config.openapi_patch_path:
+        print(
+            f"OpenAPI patch: {config.openapi_patch_path}",
+            file=sys.stderr,
+            flush=True,
+        )
     if config.include_tags or config.exclude_tags:
         print(
             "Tag filters: "
@@ -977,6 +1224,7 @@ def print_dome_banner(config: ServerConfig) -> None:
     runtime.add_row("Transport", config.transport)
     runtime.add_row("Endpoint", endpoint)
     runtime.add_row("OpenAPI", config.openapi_source)
+    runtime.add_row("OpenAPI patch", config.openapi_patch_path or "none")
     runtime.add_row("Tool details", "enabled" if config.show_tools else "suppressed")
     runtime.add_row(
         "TLS verification",

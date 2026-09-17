@@ -23,6 +23,8 @@ from dome import (
     OperationAuthRule,
     OperationAuthRules,
     ServerConfig,
+    apply_openapi_patch_file,
+    apply_openapi_patches,
     build_config,
     build_dome_log_config,
     create_mcp_server,
@@ -41,6 +43,7 @@ def make_config() -> ServerConfig:
     return ServerConfig(
         name="test",
         openapi_source="openapi.json",
+        openapi_patch_path=None,
         api_base_url="https://beta.dataverse.org/api/",
         api_key_header="X-Dataverse-key",
         api_key_env="DATAVERSE_API_TOKEN",
@@ -488,6 +491,135 @@ class OpenApiFilterTests(unittest.TestCase):
         self.assertEqual(set(filtered["paths"]), {"/users/one"})
 
 
+class OpenApiPatchTests(unittest.TestCase):
+    def test_patch_can_replace_an_operation_request_body(self) -> None:
+        spec = {
+            "paths": {
+                "/dataverses/{identifier}/datasets": {
+                    "post": {
+                        "operationId": "Dataverses_createDataset",
+                        "requestBody": {
+                            "content": {
+                                "application/ld+json": {
+                                    "schema": {"type": "string"}
+                                },
+                                "application/json": {
+                                    "schema": {"type": "string"}
+                                },
+                            }
+                        },
+                    }
+                }
+            }
+        }
+        patches = [
+            {
+                "op": "replace",
+                "path": (
+                    "/paths/~1dataverses~1{identifier}~1datasets/post/"
+                    "requestBody/content"
+                ),
+                "value": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        }
+                    }
+                },
+            }
+        ]
+
+        patched = apply_openapi_patches(spec, patches)
+
+        self.assertEqual(
+            patched["paths"]["/dataverses/{identifier}/datasets"]["post"][
+                "requestBody"
+            ]["content"],
+            patches[0]["value"],
+        )
+        self.assertEqual(
+            list(
+                spec["paths"]["/dataverses/{identifier}/datasets"]["post"][
+                    "requestBody"
+                ]["content"]
+            ),
+            ["application/ld+json", "application/json"],
+        )
+
+    def test_patch_file_can_use_a_wrapped_patch_document(self) -> None:
+        spec = {"paths": {}, "x-dome": {"enabled": False}}
+
+        with TemporaryDirectory() as directory:
+            patch_path = Path(directory) / "openapi-patches.json"
+            patch_path.write_text(
+                '{"patches": [{"op": "replace", '
+                '"path": "/x-dome/enabled", "value": true}]}',
+                encoding="utf-8",
+            )
+
+            patched = apply_openapi_patch_file(spec, str(patch_path))
+
+        self.assertTrue(patched["x-dome"]["enabled"])
+
+    def test_patch_supports_add_remove_and_copy_with_escaped_keys(self) -> None:
+        spec = {"paths": {}, "x-dome": {"a/b": "value", "items": ["one"]}}
+
+        patched = apply_openapi_patches(
+            spec,
+            [
+                {"op": "add", "path": "/x-dome/items/-", "value": "two"},
+                {"op": "copy", "from": "/x-dome/a~1b", "path": "/x-dome/copied"},
+                {"op": "remove", "path": "/x-dome/a~1b"},
+            ],
+        )
+
+        self.assertEqual(patched["x-dome"], {"items": ["one", "two"], "copied": "value"})
+
+    def test_create_mcp_server_applies_patch_before_filtering(self) -> None:
+        spec = {
+            "paths": {
+                "/datasets": {
+                    "post": {
+                        "operationId": "Datasets_create",
+                        "tags": ["Datasets"],
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"type": "string"}
+                                }
+                            }
+                        },
+                    }
+                }
+            }
+        }
+
+        with TemporaryDirectory() as directory:
+            patch_path = Path(directory) / "openapi-patches.json"
+            patch_path.write_text(
+                '[{"op": "replace", "path": '
+                '"/paths/~1datasets/post/requestBody/content/application~1json/schema/type", '
+                '"value": "object"}]',
+                encoding="utf-8",
+            )
+            config = replace(make_config(), openapi_patch_path=str(patch_path))
+            mcp = Mock()
+
+            with patch("dome.load_openapi_spec", return_value=spec):
+                with patch("dome.http_client.AsyncClient"):
+                    with patch("dome.FastMCP.from_openapi", return_value=mcp) as factory:
+                        self.assertIs(create_mcp_server(config), mcp)
+
+        patched_spec = factory.call_args.kwargs["openapi_spec"]
+        self.assertEqual(
+            patched_spec["paths"]["/datasets"]["post"]["requestBody"]["content"][
+                "application/json"
+            ]["schema"]["type"],
+            "object",
+        )
+
+
 class RunServerTests(unittest.TestCase):
     def test_stdio_startup_suppresses_framework_banner(self) -> None:
         mcp = Mock()
@@ -696,6 +828,17 @@ class ArgumentParsingTests(unittest.TestCase):
                 args = parse_args()
 
         self.assertFalse(args.show_banner)
+
+    def test_mcp_openapi_patch_environment_setting_is_read(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"MCP_OPENAPI_PATCH": "./openapi-patches.json"},
+            clear=False,
+        ):
+            with patch.object(sys, "argv", ["dome.py"]):
+                args = parse_args()
+
+        self.assertEqual(args.openapi_patch, "./openapi-patches.json")
 
 
 class EnvironmentLoadingTests(unittest.TestCase):

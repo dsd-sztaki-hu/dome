@@ -44,6 +44,9 @@ python dome.py \
   --port 8000
 ```
 
+Add `--openapi-patch ./openapi-patches.json` when a local correction file is
+needed.
+
 The MCP endpoint is:
 
 ```text
@@ -77,6 +80,8 @@ MCP_SHOW_TOOLS=false
 MCP_LOG_DATAVERSE_REQUESTS=false
 # Disable TLS certificate verification; use only on a trusted network.
 MCP_IGNORE_SSL_ERRORS=false
+# Optional local JSON Patch file applied after fetching the OpenAPI document.
+# MCP_OPENAPI_PATCH=./openapi-patches.json
 # Optional exact OpenAPI operationId filters (the generated MCP tool names).
 # INCLUDE_TOOLS=DataRetrieverAPI_retrieveMyCollectionList,DataRetrieverAPI_retrieveMyDataAsJsonString
 # EXCLUDE_TOOLS=Users_sensitiveOperation
@@ -107,6 +112,55 @@ python dome.py \
 If `--openapi` is omitted, the server uses `./openapi.json`. You can also pass
 an HTTP(S) URL, for example `--openapi http://127.0.0.1:8080/openapi.json`.
 
+## OpenAPI patches
+
+The remote OpenAPI document is sometimes too ambiguous for an MCP client. DOME
+can apply a local [JSON Patch](https://www.rfc-editor.org/rfc/rfc6902) document
+after fetching the specification and before filtering it or creating MCP tools.
+The remote document is not modified, and the patch is only applied in memory.
+
+Pass the patch file on the command line:
+
+```bash
+python dome.py \
+  --openapi https://beta.dataverse.org/openapi?format=json \
+  --api-base-url https://beta.dataverse.org/api/ \
+  --openapi-patch ./openapi-patches.json
+```
+
+Or configure the same path in `.env`:
+
+```env
+MCP_OPENAPI_PATCH=./openapi-patches.json
+```
+
+The patch file contains an array of JSON Patch operations. DOME supports
+`add`, `remove`, `replace`, `move`, `copy`, and `test`. For example, this patch
+corrects the Dataverse dataset-creation operation: it removes the ambiguous
+JSON-LD alternatives and exposes the standard dataset JSON body as an object.
+
+```json
+[
+  {
+    "op": "replace",
+    "path": "/paths/~1dataverses~1{identifier}~1datasets/post/requestBody/content",
+    "value": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+]
+```
+
+JSON Pointer escapes `/` as `~1` and `~` as `~0`, which is why the OpenAPI
+path above contains `~1`. Multiple operations can be kept in the same patch
+file. DOME exits with a clear error if the file or any patch operation is
+invalid.
+
 ## Environment
 
 You can use environment variables instead of CLI options:
@@ -130,6 +184,8 @@ MCP_SHOW_TOOLS=false
 MCP_LOG_DATAVERSE_REQUESTS=false
 # Disable TLS certificate verification; use only on a trusted network.
 MCP_IGNORE_SSL_ERRORS=false
+# Optional local JSON Patch file applied after fetching the OpenAPI document.
+# MCP_OPENAPI_PATCH=./openapi-patches.json
 INCLUDE_TAGS=Datasets,Files
 # EXCLUDE_TAGS=Admin
 # INCLUDE_TOOLS=DataRetrieverAPI_retrieveMyCollectionList,DataRetrieverAPI_retrieveMyDataAsJsonString
