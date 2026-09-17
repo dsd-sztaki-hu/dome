@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
+# ************************************************************************************************
+# Copyright (C) 2025-2026 SZTAKI, Department of Distributed Systems https://dsd.sztaki.hu.
+#
+# SPDX-License-Identifier: Apache-2.0
+# ************************************************************************************************
 """Configurable DOME MCP server for an OpenAPI specification."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Callable
 from copy import deepcopy
 import json
 import logging
@@ -293,8 +299,8 @@ def parse_args() -> argparse.Namespace:
         "--openapi-patch",
         default=os.getenv("MCP_OPENAPI_PATCH") or None,
         help=(
-            "Path to a local OpenAPI correction file (operation overrides or "
-            "JSON Patch) applied before DOME creates MCP tools."
+            "Path to a local OpenAPI correction file (source merges, operation "
+            "overrides, or JSON Patch) applied before DOME creates MCP tools."
         ),
     )
     parser.add_argument(
@@ -638,7 +644,13 @@ def load_openapi_spec(source: str, timeout: float, verify_ssl: bool = True) -> d
     return spec
 
 
-def apply_openapi_patch_file(spec: dict, path: str) -> dict:
+def apply_openapi_patch_file(
+    spec: dict,
+    path: str,
+    *,
+    timeout: float = 30,
+    verify_ssl: bool = True,
+) -> dict:
     patch_path = Path(path)
     try:
         with patch_path.open("r", encoding="utf-8") as handle:
@@ -650,24 +662,77 @@ def apply_openapi_patch_file(spec: dict, path: str) -> dict:
             f"OpenAPI patch file is not valid JSON {path}: {exc}"
         ) from exc
 
+    def load_merge_source(source: str) -> dict:
+        merge_source = normalize_openapi_merge_source(source, patch_path.parent)
+        try:
+            return load_openapi_spec(
+                merge_source,
+                timeout,
+                verify_ssl=verify_ssl,
+            )
+        except SystemExit as exc:
+            raise ValueError(str(exc)) from exc
+
     try:
-        return apply_openapi_patches(spec, patch_document)
+        return apply_openapi_patches(
+            spec,
+            patch_document,
+            source_loader=load_merge_source,
+        )
     except ValueError as exc:
         raise SystemExit(f"Invalid OpenAPI patch file {path}: {exc}") from exc
 
 
-def apply_openapi_patches(spec: dict, patches: object) -> dict:
+def apply_openapi_patches(
+    spec: dict,
+    patches: object,
+    *,
+    source_loader: Callable[[str], dict] | None = None,
+) -> dict:
     """Apply an OpenAPI correction document to an OpenAPI document.
 
-    The preferred format targets operations by operationId. An RFC 6902-style
-    JSON Patch array remains supported for advanced or backwards-compatible
-    corrections.
+    The preferred format can merge unique operations from additional OpenAPI
+    sources and target operations by operationId. An RFC 6902-style JSON Patch
+    array remains supported for advanced or backwards-compatible corrections.
+    Sections in an object-form patch are applied in this order: ``merge``,
+    ``operations``, and ``patches``.
     """
 
     if isinstance(patches, dict):
+        supported_sections = {"merge", "operations", "patches"}
+        if not supported_sections.intersection(patches):
+            raise ValueError(
+                "the patch document must contain 'merge', 'operations', or 'patches'"
+            )
+
+        patched = deepcopy(spec)
+        if "merge" in patches:
+            if source_loader is None:
+                raise ValueError(
+                    "'merge' entries require a source loader when patches are "
+                    "applied programmatically"
+                )
+            patched = apply_openapi_merges(
+                patched,
+                patches["merge"],
+                source_loader,
+            )
         if "operations" in patches:
-            return apply_openapi_operation_overrides(spec, patches["operations"])
-        patches = patches.get("patches")
+            patched = apply_openapi_operation_overrides(
+                patched,
+                patches["operations"],
+            )
+        if "patches" in patches:
+            patched = apply_json_patch_operations(patched, patches["patches"])
+
+        if not isinstance(patched, dict) or not isinstance(patched.get("paths"), dict):
+            raise ValueError("patches must leave the OpenAPI document with a paths object")
+        return patched
+
+    return apply_json_patch_operations(spec, patches)
+
+
+def apply_json_patch_operations(spec: dict, patches: object) -> dict:
     if not isinstance(patches, list):
         raise ValueError("the patch document must be an array of patch operations")
 
@@ -684,6 +749,219 @@ def apply_openapi_patches(spec: dict, patches: object) -> dict:
     if not isinstance(patched, dict) or not isinstance(patched.get("paths"), dict):
         raise ValueError("patches must leave the OpenAPI document with a paths object")
     return patched
+
+
+def normalize_openapi_merge_source(source: object, relative_to: Path) -> str:
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("merge source must be a non-empty path or HTTP(S) URL")
+
+    source = source.strip()
+    if is_http_url(source):
+        return source
+
+    source_path = Path(source).expanduser()
+    if not source_path.is_absolute():
+        source_path = relative_to / source_path
+    source_path = source_path.resolve()
+    if not source_path.is_file():
+        raise ValueError(f"merge source file not found: {source_path}")
+    return str(source_path)
+
+
+def apply_openapi_merges(
+    spec: dict,
+    merges: object,
+    source_loader: Callable[[str], dict],
+) -> dict:
+    if isinstance(merges, (str, dict)):
+        merges = [merges]
+    if not isinstance(merges, list) or not merges:
+        raise ValueError("'merge' must be a non-empty array of source definitions")
+
+    merged = deepcopy(spec)
+    for merge_index, merge in enumerate(merges):
+        if isinstance(merge, str):
+            source = merge
+            operation_mode = "unique"
+        elif isinstance(merge, dict):
+            source = merge.get("source")
+            operation_mode = merge.get("operations", "unique")
+        else:
+            raise ValueError(
+                f"merge entry {merge_index} must be a source string or object"
+            )
+
+        if operation_mode != "unique":
+            raise ValueError(
+                f"merge entry {merge_index} supports only 'operations': 'unique'"
+            )
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError(
+                f"merge entry {merge_index} must contain a non-empty 'source'"
+            )
+
+        try:
+            source_spec = source_loader(source.strip())
+        except ValueError as exc:
+            raise ValueError(f"merge entry {merge_index}: {exc}") from exc
+        if not isinstance(source_spec, dict) or not isinstance(
+            source_spec.get("paths"), dict
+        ):
+            raise ValueError(
+                f"merge entry {merge_index} source must contain a paths object"
+            )
+        merged = merge_unique_openapi_operations(merged, source_spec)
+
+    return merged
+
+
+def merge_unique_openapi_operations(base_spec: dict, source_spec: dict) -> dict:
+    """Add source operations absent from the accumulated OpenAPI document.
+
+    An operation is considered already present when either its HTTP method and
+    path or its operationId is already present. Existing operations and
+    component definitions always win over source definitions.
+    """
+
+    if not isinstance(base_spec, dict) or not isinstance(base_spec.get("paths"), dict):
+        raise ValueError("the base OpenAPI document must contain a paths object")
+    if not isinstance(source_spec, dict) or not isinstance(source_spec.get("paths"), dict):
+        raise ValueError("the merge source must contain a paths object")
+
+    merged = deepcopy(base_spec)
+    existing_endpoints, existing_operation_ids = openapi_operation_identity_sets(
+        merged
+    )
+    added_operations = []
+
+    for path, source_path_item in source_spec["paths"].items():
+        if not isinstance(source_path_item, dict):
+            continue
+
+        target_path_item = merged["paths"].get(path)
+        for method, source_operation in source_path_item.items():
+            if method.lower() not in HTTP_METHODS or not isinstance(source_operation, dict):
+                continue
+
+            endpoint = (method.lower(), path)
+            operation_id = source_operation.get("operationId")
+            operation_id = (
+                operation_id.strip()
+                if isinstance(operation_id, str) and operation_id.strip()
+                else None
+            )
+            if endpoint in existing_endpoints or (
+                operation_id is not None and operation_id in existing_operation_ids
+            ):
+                continue
+
+            if target_path_item is None:
+                target_path_item = {
+                    key: deepcopy(value)
+                    for key, value in source_path_item.items()
+                    if key.lower() not in HTTP_METHODS
+                }
+                merged["paths"][path] = target_path_item
+            elif not isinstance(target_path_item, dict):
+                raise ValueError(f"base path item is not an object: {path}")
+            else:
+                merge_path_item_metadata(target_path_item, source_path_item)
+
+            operation = deepcopy(source_operation)
+            if "security" not in operation and "security" in source_spec:
+                operation["security"] = deepcopy(source_spec["security"])
+            target_path_item[method] = operation
+            existing_endpoints.add(endpoint)
+            if operation_id is not None:
+                existing_operation_ids.add(operation_id)
+            added_operations.append(operation)
+
+    if not added_operations:
+        return merged
+
+    merge_missing_openapi_components(merged, source_spec)
+    merge_source_tags(merged, source_spec, added_operations)
+    return merged
+
+
+def openapi_operation_identity_sets(
+    spec: dict,
+) -> tuple[set[tuple[str, str]], set[str]]:
+    endpoints = set()
+    operation_ids = set()
+    for path, path_item in (spec.get("paths") or {}).items():
+        if not isinstance(path_item, dict):
+            continue
+        for method, operation in path_item.items():
+            if method.lower() not in HTTP_METHODS or not isinstance(operation, dict):
+                continue
+            endpoints.add((method.lower(), path))
+            operation_id = operation.get("operationId")
+            if isinstance(operation_id, str) and operation_id.strip():
+                operation_ids.add(operation_id.strip())
+    return endpoints, operation_ids
+
+
+def merge_path_item_metadata(target: dict, source: dict) -> None:
+    for key, value in source.items():
+        if key.lower() in HTTP_METHODS or key in target:
+            continue
+        target[key] = deepcopy(value)
+
+
+def merge_missing_openapi_components(base_spec: dict, source_spec: dict) -> None:
+    source_components = source_spec.get("components")
+    if source_components is None:
+        return
+    if not isinstance(source_components, dict):
+        raise ValueError("the merge source components must be an object")
+
+    base_components = base_spec.setdefault("components", {})
+    if not isinstance(base_components, dict):
+        raise ValueError("the base OpenAPI components must be an object")
+
+    for section, source_definitions in source_components.items():
+        if not isinstance(source_definitions, dict):
+            continue
+        base_definitions = base_components.setdefault(section, {})
+        if not isinstance(base_definitions, dict):
+            raise ValueError(
+                f"the base OpenAPI component section is not an object: {section}"
+            )
+        for name, definition in source_definitions.items():
+            if name not in base_definitions:
+                base_definitions[name] = deepcopy(definition)
+
+
+def merge_source_tags(
+    base_spec: dict,
+    source_spec: dict,
+    added_operations: list[dict],
+) -> None:
+    used_tag_names = normalized_tag_set(
+        tag
+        for operation in added_operations
+        for tag in operation.get("tags") or []
+    )
+    source_tags = source_spec.get("tags")
+    if not used_tag_names or not isinstance(source_tags, list):
+        return
+
+    base_tags = base_spec.setdefault("tags", [])
+    if not isinstance(base_tags, list):
+        raise ValueError("the base OpenAPI tags value must be an array")
+    existing_tag_names = normalized_tag_set(
+        tag.get("name")
+        for tag in base_tags
+        if isinstance(tag, dict)
+    )
+    for tag in source_tags:
+        if not isinstance(tag, dict):
+            continue
+        tag_name = normalize_tag(tag.get("name"))
+        if tag_name in used_tag_names and tag_name not in existing_tag_names:
+            base_tags.append(deepcopy(tag))
+            existing_tag_names.add(tag_name)
 
 
 def apply_openapi_operation_overrides(spec: dict, operations: object) -> dict:
@@ -1310,6 +1588,8 @@ def create_mcp_server(config: ServerConfig) -> FastMCP:
         openapi_spec = apply_openapi_patch_file(
             openapi_spec,
             config.openapi_patch_path,
+            timeout=config.timeout,
+            verify_ssl=not config.ignore_ssl_errors,
         )
     openapi_spec = filter_openapi_by_tags(openapi_spec, config)
     api_client = http_client.AsyncClient(
