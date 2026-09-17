@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -79,6 +80,19 @@ def _select_http_client_module():
 http_client = _select_http_client_module()
 HttpRequest = http_client.Request
 HttpAuth = http_client.Auth
+
+
+class DataverseRequestLogHandler(logging.StreamHandler):
+    """Render request diagnostics like FastMCP without terminal line folding."""
+
+    def __init__(self, stream=None) -> None:
+        super().__init__(stream if stream is not None else sys.stderr)
+        self.setFormatter(
+            logging.Formatter(
+                "[%(asctime)s] %(levelname)-8s %(message)s %(filename)s:%(lineno)d",
+                datefmt="%x %X",
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -736,6 +750,13 @@ def log_dataverse_request(
     )
 
 
+def configure_dataverse_request_logging() -> None:
+    if any(isinstance(handler, DataverseRequestLogHandler) for handler in logger.handlers):
+        return
+    logger.propagate = False
+    logger.addHandler(DataverseRequestLogHandler())
+
+
 def api_key_missing_message(config: ServerConfig) -> str:
     if config.api_key_mode == "env":
         return f"Missing {config.api_key_env}; cannot set {config.api_key_header}."
@@ -901,6 +922,8 @@ def main() -> None:
     config = build_config(parse_args())
     print_ssl_warning(config)
     mcp = create_mcp_server(config)
+    if config.log_dataverse_requests:
+        configure_dataverse_request_logging()
     if config.show_banner:
         print_dome_banner(config)
     print_served_tools(config, mcp)

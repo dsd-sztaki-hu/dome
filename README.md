@@ -176,7 +176,9 @@ For upstream request diagnostics, pass `--log-dataverse-requests` or set
 `MCP_LOG_DATAVERSE_REQUESTS=true`. DOME then writes one line to stderr for
 each MCP-to-Dataverse request, including the HTTP method, path, and whether
 authentication was used, for example `(auth=used)` or `(auth=not-used)`. The
-log never contains the token or other credential values. Use
+log follows FastMCP's timestamp, level, message, and source-file format and is
+emitted as one line even when the request path is long. It never contains the
+token or other credential values. Use
 `--no-log-dataverse-requests` to override the environment setting.
 
 Recommended deployment profiles:

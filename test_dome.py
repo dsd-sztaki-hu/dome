@@ -1,5 +1,6 @@
 import asyncio
 import io
+import logging
 import os
 import sys
 import unittest
@@ -16,6 +17,7 @@ import httpx
 
 from dome import (
     DataverseApiKeyAuth,
+    DataverseRequestLogHandler,
     OperationAuthRule,
     OperationAuthRules,
     ServerConfig,
@@ -170,6 +172,34 @@ class DataverseApiKeyAuthTests(unittest.TestCase):
         self.assertIn("Dataverse request GET /api/public (auth=not-used)", audit_log)
         self.assertNotIn("stale-secret", audit_log)
         self.assertNotIn("secret", audit_log)
+
+
+class DataverseRequestLoggingTests(unittest.TestCase):
+    def test_handler_uses_fastmcp_style_format_without_newlines(self) -> None:
+        output = io.StringIO()
+        handler = DataverseRequestLogHandler(output)
+        record = logging.LogRecord(
+            name="fastmcp.dome",
+            level=logging.INFO,
+            pathname="/tmp/dome.py",
+            lineno=730,
+            msg=(
+                "[Dataverse DOME MCP] Dataverse request GET "
+                "/api/mydata/retrieve/collectionList (auth=used)"
+            ),
+            args=(),
+            exc_info=None,
+        )
+
+        handler.emit(record)
+
+        rendered = output.getvalue()
+        self.assertEqual(rendered.count("\n"), 1)
+        self.assertIn(
+            "INFO     [Dataverse DOME MCP] Dataverse request GET "
+            "/api/mydata/retrieve/collectionList (auth=used) dome.py:730",
+            rendered,
+        )
 
 
 class OpenApiFilterTests(unittest.TestCase):
