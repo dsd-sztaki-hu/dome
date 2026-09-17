@@ -563,3 +563,7 @@ Then set the token before starting opencode:
 ```bash
 export DATAVERSE_API_TOKEN="your-token"
 ```
+
+## License
+
+DOME is licensed under the [Apache License, Version 2.0](./LICENSE).
