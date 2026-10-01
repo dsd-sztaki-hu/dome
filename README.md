@@ -24,7 +24,8 @@ The usual use case for DOME is the following:
 3. Researchers, data stewards or Dataverse admins use their favorite AI agent or agent harness 
    (Codex, Claude Code, Gemini CLI, opencode, etc.) to perform tasks on Dataverse (like searching, 
    creating, updatingm publishing datasets) using the DOME.
-   
+
+We ourselves have DOME running for our [ARP Data Repository Platform's](https://researchdata.hu/en) Dataverse installation.
 
 ## Install
 
