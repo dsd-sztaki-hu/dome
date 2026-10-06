@@ -598,3 +598,5 @@ export DATAVERSE_API_TOKEN="your-token"
 ## License
 
 DOME is licensed under the [Apache License, Version 2.0](./LICENSE).
+
+Copyright (C) 2026 SZTAKI, Department of Distributed Systems https://dsd.sztaki.hu.

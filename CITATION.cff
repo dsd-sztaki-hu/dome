@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use DOME in your research, please cite it using this file."
+title: "DOME: A Configurable Dataverse MCP Server"
+abstract: "DOME is a configurable MCP engine that turns a Dataverse OpenAPI document into MCP tools, making selected parts of the Dataverse API available to AI agents and other MCP clients."
+authors:
+  - family-names: Pataki
+    given-names: "Balazs E."
+    affiliation: "SZTAKI, Department of Distributed Systems"
+repository-code: "https://github.com/dsd-sztaki-hu/dome"
+url: "https://dsd.sztaki.hu"
+license: Apache-2.0
+keywords:
+  - Dataverse
+  - MCP
+  - Model Context Protocol
+  - OpenAPI
+  - research software
